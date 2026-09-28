@@ -10,6 +10,7 @@ DICE = {
     "D2": 2,
     "D4": 4,
     "D6": 6,
+    "D8": 8,
     "D10": 10,
     "D12": 12,
     "D20": 20,
@@ -149,8 +150,7 @@ st.markdown(
     <header class="masthead">
         <div>
             <div class="eyebrow">DND Diceroller</div>
-            <div class="hero-title">Zeit für einen Wurf.</div>
-            <div class="hero-subtitle">Bereit, wenn du es bist.</div>
+            <div class="hero-title">Klapperkiste!</div>
         </div>
         <div class="masthead-mark">D2 <span style="color:#bd573d">·</span> D100</div>
     </header>
