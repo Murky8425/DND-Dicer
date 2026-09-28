@@ -113,15 +113,28 @@ st.markdown(
         color: #fff; transform: translateY(-1px);
     }
     .die {
-        min-height: 122px; display: flex; flex-direction: column;
-        justify-content: space-between; padding: 15px 16px; border-radius: 6px;
-        box-sizing: border-box; margin-bottom: 14px;
-        box-shadow: 0 3px 10px rgba(27, 39, 33, 0.12);
+        position: relative; width: min(100%, 112px); aspect-ratio: 1;
+        display: flex; align-items: center; justify-content: center;
+        padding: 12px; border-radius: 18px; box-sizing: border-box;
+        margin: 0 auto 14px; border: 2px solid rgba(255,255,255,0.34);
+        box-shadow: 0 12px 20px rgba(27, 39, 33, 0.16),
+                    inset 0 2px 0 rgba(255,255,255,0.28),
+                    inset -8px -10px 18px rgba(0,0,0,0.12);
+        transform: perspective(700px) rotateX(8deg) rotateY(-8deg);
         animation: die-arrive 320ms ease-out both;
     }
-    .die-label { font-size: 0.78rem; font-weight: 700; opacity: 0.82; }
-    .die-value { font-size: 2.25rem; line-height: 1; font-weight: 800; }
-    .die-number { font-size: 0.78rem; opacity: 0.82; }
+    .die-label {
+        position: absolute; top: 10px; left: 12px; font-size: 0.62rem;
+        font-weight: 700; letter-spacing: 0.06em; opacity: 0.82;
+    }
+    .die-value {
+        font-size: clamp(2.2rem, 2.7vw, 3.2rem); line-height: 1;
+        font-weight: 800; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+    .die-number {
+        position: absolute; right: 10px; bottom: 8px; font-size: 0.66rem;
+        font-weight: 700; opacity: 0.8;
+    }
     @keyframes die-arrive {
         from { opacity: 0; transform: translateY(8px) rotate(-2deg); }
         to { opacity: 1; transform: translateY(0) rotate(0); }
@@ -262,10 +275,10 @@ with results:
                 with result_columns[die_index % len(result_columns)]:
                     st.markdown(
                         f"""
-                        <div class="die" style="background:{color};color:{text_color}">
-                            <span class="die-label">{group['type']} · Würfel {group_die_index}</span>
+                        <div class="die" style="background:linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08)), {color}; color:{text_color};">
+                            <span class="die-label">{group['type']}</span>
                             <span class="die-value">{face}</span>
-                            <span class="die-number">Ergebnis: {value}</span>
+                            <span class="die-number">{value}</span>
                         </div>
                         """,
                         unsafe_allow_html=True,
