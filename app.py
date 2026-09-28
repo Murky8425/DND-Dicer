@@ -33,11 +33,23 @@ def darken_color(hex_color: str, factor: float = 0.22) -> str:
     return "#" + "".join(f"{channel:02x}" for channel in darkened)
 
 
+def die_action_icon(symbol_name: str) -> str:
+    """Map the action symbol selection to an emoji glyph."""
+    icons = {
+        "Keine": "",
+        "Heilung": "❤️",
+        "Angriff": "⚔️",
+        "Gift": "💀",
+        "Ausweichen": "💨",
+    }
+    return icons.get(symbol_name, "")
+
+
 def die_shape_style(die_type: str) -> str:
     """Return CSS for the small symbol shown at the bottom right of each die."""
     shapes = {
         "D2": "border-radius: 50%; width: 14px; height: 14px;",
-        "D4": "width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid rgba(255,255,255,0.9);",
+        "D4": "width: 14px; height: 14px; transform: rotate(45deg); border-radius: 3px;",
         "D6": "border-radius: 5px; width: 14px; height: 14px;",
         "D8": "width: 14px; height: 14px; transform: rotate(45deg); border-radius: 2px;",
         "D10": "clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%); width: 14px; height: 14px;",
@@ -94,6 +106,16 @@ st.markdown(
         display: inline-flex; align-items: center; min-height: 2.4rem;
         color: var(--forest); font-size: 0.9rem; font-weight: 700;
     }
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPopover"]) {
+        align-items: center; gap: 0.5rem; padding: 0.35rem 0.55rem;
+        margin-bottom: 0.55rem; border: 1px solid rgba(25, 60, 50, 0.16);
+        border-left: 3px solid var(--coral); border-radius: 6px;
+        background: rgba(255, 255, 255, 0.58);
+        box-sizing: border-box;
+    }
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPopover"]) > div[data-testid="column"] {
+        min-width: 0;
+    }
     .roll-summary {
         display: flex; justify-content: space-between; align-items: center;
         border-top: 1px solid rgba(25, 60, 50, 0.18);
@@ -114,10 +136,22 @@ st.markdown(
     }
     div[data-testid="stMetricLabel"] { color: var(--muted); }
     div[data-testid="stMetricValue"] { color: var(--forest); }
+    div[data-testid="stPopover"] {
+        display: flex !important; width: 100% !important; max-width: 100%;
+    }
+    div[data-testid="stPopover"] > div {
+        width: 100% !important; max-width: 100% !important;
+    }
     div[data-testid="stPopover"] button {
-        min-height: 2.35rem; border-color: rgba(25, 60, 50, 0.25);
+        min-height: 2.9rem; padding: 0.55rem 1.1rem; border-color: rgba(25, 60, 50, 0.25);
         color: var(--forest); background: rgba(255, 255, 255, 0.55);
-        border-radius: 5px; font-size: 0.78rem;
+        border-radius: 5px; font-size: 0.84rem; font-weight: 700;
+        white-space: nowrap; min-width: 0; width: 100% !important;
+        max-width: 100%; overflow: visible; text-overflow: clip;
+    }
+    div[data-testid="stPopover"] button > span,
+    div[data-testid="stPopover"] button > div {
+        white-space: nowrap; overflow: visible; text-overflow: clip;
     }
     div[data-testid="stPopover"] button [aria-hidden="true"] {
         display: none !important;
@@ -158,6 +192,13 @@ st.markdown(
         position: absolute; right: 10px; bottom: 8px; width: 18px; height: 18px;
         display: flex; align-items: center; justify-content: center;
     }
+    .die-badge {
+        position: absolute; top: 10px; right: 10px; min-width: 20px; height: 20px;
+        padding: 0 5px; display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 999px; background: rgba(255,255,255,0.16);
+        border: 1px solid rgba(255,255,255,0.2); font-size: 0.75rem; line-height: 1;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+    }
     .die-shape {
         display: block; background: currentColor; border: 1px solid rgba(0,0,0,0.08);
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
@@ -179,10 +220,16 @@ st.markdown(
 )
 if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
+if "die_actions" not in st.session_state:
+    st.session_state.die_actions = {}
 
 
 def save_die_color(color_id: str, widget_key: str) -> None:
     st.session_state.die_colors[color_id] = st.session_state[widget_key]
+
+
+def save_die_action(die_id: str, widget_key: str) -> None:
+    st.session_state.die_actions[die_id] = st.session_state[widget_key]
 
 
 st.markdown(
@@ -203,7 +250,7 @@ with controls:
     st.subheader("Würfel auswählen")
     counts = {}
     for die_type in DICE:
-        type_column, count_column, color_column = st.columns([0.8, 1.25, 1.2])
+        type_column, count_column, settings_column = st.columns([0.55, 1.1, 2.25], gap="small")
         with type_column:
             st.markdown(f'<div class="type-label">{die_type}</div>', unsafe_allow_html=True)
         with count_column:
@@ -215,39 +262,56 @@ with controls:
                 key=f"count_{die_type}",
                 label_visibility="collapsed",
             )
-        with color_column:
+        with settings_column:
             with st.popover(
-                "🎨 Farben",
-                help="Farben der einzelnen Würfel festlegen",
-                use_container_width=True,
+                "⚙️ Einstellungen",
+                help="Farben und Aktionssymbole der einzelnen Würfel festlegen",
+                use_container_width=False,
             ):
-                st.caption(f"Farben für {counts[die_type]}× {die_type}")
+                st.caption(f"Würfel für {die_type}")
                 if counts[die_type] == 0:
                     st.caption("Wähle zuerst mindestens einen Würfel dieser Art.")
                 else:
+                    symbol_options = ["Keine", "Heilung", "Angriff", "Gift", "Ausweichen"]
                     for die_index in range(counts[die_type]):
                         color_id = f"{die_type}_{die_index + 1}"
-                        widget_key = f"color_{color_id}"
+                        action_id = color_id
+                        color_key = f"color_{color_id}"
+                        action_key = f"action_{action_id}"
                         default_color = PALETTE[die_index % len(PALETTE)]
-                        if widget_key not in st.session_state:
-                            st.session_state[widget_key] = st.session_state.die_colors.get(
+                        default_action = st.session_state.die_actions.get(action_id, "Keine")
+                        if color_key not in st.session_state:
+                            st.session_state[color_key] = st.session_state.die_colors.get(
                                 color_id, default_color
                             )
-                        label_column, picker_column = st.columns([1, 1.5])
-                        with label_column:
-                            st.write(f"Würfel {die_index + 1}")
-                        with picker_column:
+                        if action_key not in st.session_state:
+                            st.session_state[action_key] = default_action
+
+                        st.write(f"Würfel {die_index + 1}")
+                        color_column_ui, action_column_ui = st.columns([1.4, 1.2])
+                        with color_column_ui:
                             st.color_picker(
                                 f"Farbe {die_type} Würfel {die_index + 1}",
-                                key=widget_key,
+                                key=color_key,
                                 on_change=save_die_color,
-                                args=(color_id, widget_key),
+                                args=(color_id, color_key),
                                 label_visibility="collapsed",
                             )
+                        with action_column_ui:
+                            selected_action = st.selectbox(
+                                f"Symbol {die_type} Würfel {die_index + 1}",
+                                options=symbol_options,
+                                index=symbol_options.index(st.session_state[action_key]),
+                                key=action_key,
+                                on_change=save_die_action,
+                                args=(action_id, action_key),
+                                label_visibility="collapsed",
+                            )
+                            st.session_state.die_actions[action_id] = selected_action
 
     total_count = sum(counts.values())
     st.markdown(
-        f'<div class="roll-summary"><span>Würfel im Becher</span><strong>{total_count}</strong></div>',
+        f'<div class="roll-summary"><span>Würfel im Tower</span><strong>{total_count}</strong></div>',
         unsafe_allow_html=True,
     )
     roll_clicked = st.button(
@@ -268,11 +332,16 @@ if roll_clicked:
             )
             for die_index in range(count)
         ]
+        actions = [
+            st.session_state.die_actions.get(f"{die_type}_{die_index + 1}", "Keine")
+            for die_index in range(count)
+        ]
         result_groups.append(
             {
                 "type": die_type,
                 "values": [random.randint(1, DICE[die_type]) for _ in range(count)],
                 "colors": colors,
+                "actions": actions,
             }
         )
     st.session_state.last_roll = {"groups": result_groups}
@@ -293,17 +362,19 @@ with results:
         die_index = 0
         all_values = []
         for group in result["groups"]:
-            for group_die_index, (value, color) in enumerate(
-                zip(group["values"], group["colors"]), start=1
+            for group_die_index, (value, color, action) in enumerate(
+                zip(group["values"], group["colors"], group["actions"]), start=1
             ):
                 all_values.append(value)
                 face = ("X" if value == 1 else "O") if group["type"] == "D2" else str(value)
                 die_bg = darken_color(color, 0.2)
                 text_color = readable_text_color(die_bg)
+                action_symbol = die_action_icon(action)
                 with result_columns[die_index % len(result_columns)]:
                     st.markdown(
                         f"""
                         <div class="die" style="background:linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08)), {die_bg}; color:{text_color};">
+                            <span class="die-badge">{action_symbol}</span>
                             <span class="die-label">{group['type']}</span>
                             <span class="die-value">{face}</span>
                             <span class="die-symbol">
@@ -314,6 +385,6 @@ with results:
                         unsafe_allow_html=True,
                     )
                 die_index += 1
-        st.metric("Summe", sum(all_values))
+        st.metric("Roll", sum(all_values))
     else:
         st.info("Wähle links Würfel aus und starte deinen Wurf.")
