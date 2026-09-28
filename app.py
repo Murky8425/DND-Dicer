@@ -26,6 +26,29 @@ def readable_text_color(hex_color: str) -> str:
     return "#17211E" if luminance > 0.58 else "#FFFFFF"
 
 
+def darken_color(hex_color: str, factor: float = 0.22) -> str:
+    """Return a darker version of the given hex color."""
+    red, green, blue = (int(hex_color[index : index + 2], 16) for index in (1, 3, 5))
+    darkened = tuple(max(0, int(channel * (1 - factor))) for channel in (red, green, blue))
+    return "#" + "".join(f"{channel:02x}" for channel in darkened)
+
+
+def die_shape_style(die_type: str) -> str:
+    """Return CSS for the small symbol shown at the bottom right of each die."""
+    shapes = {
+        "D2": "border-radius: 50%; width: 14px; height: 14px;",
+        "D4": "width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid rgba(255,255,255,0.9);",
+        "D6": "border-radius: 5px; width: 14px; height: 14px;",
+        "D8": "width: 14px; height: 14px; transform: rotate(45deg); border-radius: 2px;",
+        "D10": "clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%); width: 14px; height: 14px;",
+        "D12": "clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%); width: 14px; height: 14px;",
+        "D20": "clip-path: polygon(50% 0%, 62% 14%, 86% 18%, 100% 38%, 100% 62%, 86% 82%, 62% 86%, 50% 100%, 38% 86%, 14% 82%, 0% 62%, 0% 38%, 14% 18%, 38% 14%); width: 14px; height: 14px;",
+        "D50": "clip-path: polygon(50% 0%, 63% 12%, 88% 21%, 100% 50%, 88% 79%, 63% 88%, 50% 100%, 37% 88%, 12% 79%, 0% 50%, 12% 21%, 37% 12%); width: 14px; height: 14px;",
+        "D100": "clip-path: polygon(50% 0%, 64% 8%, 92% 22%, 100% 50%, 92% 78%, 64% 92%, 50% 100%, 36% 92%, 8% 78%, 0% 50%, 8% 22%, 36% 8%); width: 14px; height: 14px;",
+    }
+    return shapes.get(die_type, "border-radius: 4px; width: 14px; height: 14px;")
+
+
 st.markdown(
     """
     <style>
@@ -131,9 +154,13 @@ st.markdown(
         font-size: clamp(2.2rem, 2.7vw, 3.2rem); line-height: 1;
         font-weight: 800; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.12);
     }
-    .die-number {
-        position: absolute; right: 10px; bottom: 8px; font-size: 0.66rem;
-        font-weight: 700; opacity: 0.8;
+    .die-symbol {
+        position: absolute; right: 10px; bottom: 8px; width: 18px; height: 18px;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .die-shape {
+        display: block; background: currentColor; border: 1px solid rgba(0,0,0,0.08);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
     }
     @keyframes die-arrive {
         from { opacity: 0; transform: translateY(8px) rotate(-2deg); }
@@ -271,14 +298,17 @@ with results:
             ):
                 all_values.append(value)
                 face = ("X" if value == 1 else "O") if group["type"] == "D2" else str(value)
-                text_color = readable_text_color(color)
+                die_bg = darken_color(color, 0.2)
+                text_color = readable_text_color(die_bg)
                 with result_columns[die_index % len(result_columns)]:
                     st.markdown(
                         f"""
-                        <div class="die" style="background:linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08)), {color}; color:{text_color};">
+                        <div class="die" style="background:linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08)), {die_bg}; color:{text_color};">
                             <span class="die-label">{group['type']}</span>
                             <span class="die-value">{face}</span>
-                            <span class="die-number">{value}</span>
+                            <span class="die-symbol">
+                                <span class="die-shape" style="{die_shape_style(group['type'])};"></span>
+                            </span>
                         </div>
                         """,
                         unsafe_allow_html=True,
