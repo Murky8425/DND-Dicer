@@ -1,4 +1,5 @@
 import random
+import uuid
 
 import streamlit as st
 
@@ -6,6 +7,7 @@ import streamlit as st
 st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
 
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
+MAX_BOSSES = 10
 DICE = {
     "D2": 2,
     "D4": 4,
@@ -17,6 +19,23 @@ DICE = {
     "D50": 50,
     "D100": 100,
 }
+EFFECTS = [
+    "Vergiftet",
+    "Müde",
+    "Ohnmächtig",
+    "Kalt",
+    "Warm",
+    "Unter Zauber",
+    "Polymorph",
+    "Wildshape",
+    "Konzentration",
+    "Gelähmt",
+    "Gefangen",
+    "Verwirrt",
+    "Blindheit",
+    "Fasziniert",
+    "Betäubt",
+]
 
 
 def readable_text_color(hex_color: str) -> str:
@@ -105,6 +124,72 @@ st.markdown(
     .type-label {
         display: inline-flex; align-items: center; min-height: 2.4rem;
         color: var(--forest); font-size: 0.9rem; font-weight: 700;
+    }
+    .effects-panel-title { color: var(--forest); font-size: 1rem; font-weight: 700; }
+    .st-key-boss_hp_panel {
+        margin-bottom: 1rem; padding: 1rem;
+        border: 1px solid rgba(25, 60, 50, 0.18);
+        border-top: 3px solid var(--coral); border-radius: 6px;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
+    }
+    .boss-panel-title { color: var(--forest); font-size: 1rem; font-weight: 700; }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] {
+        display: inline-flex !important; width: auto !important;
+    }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] > div {
+        width: auto !important; max-width: none !important;
+    }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] button {
+        width: 2.2rem !important; min-width: 2.2rem; max-width: 2.2rem;
+        height: 2.2rem; min-height: 2.2rem; padding: 0;
+        border: 0; border-radius: 50%; background: var(--forest); color: #fff;
+        font-size: 1.35rem; line-height: 1;
+    }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] button:hover {
+        background: var(--forest-light); color: #fff;
+    }
+    [class*="st-key-boss_card_"] {
+        margin-top: 0.75rem; padding: 0.75rem;
+        border: 1px solid rgba(25, 60, 50, 0.14); border-radius: 5px;
+        background: rgba(243, 242, 235, 0.48);
+    }
+    .boss-name { color: var(--forest); font-weight: 700; }
+    .st-key-boss_hp_panel [class*="st-key-delete_boss_"] button {
+        width: 3rem; min-width: 3rem; height: 2.5rem; padding: 0;
+    }
+    .st-key-effects_panel {
+        padding: 1rem; border: 1px solid rgba(25, 60, 50, 0.18);
+        border-top: 3px solid var(--coral); border-radius: 6px;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
+    }
+    .st-key-effects_panel div[data-testid="stPopover"] {
+        display: inline-flex !important; width: auto !important;
+    }
+    .st-key-effects_panel div[data-testid="stPopover"] > div {
+        width: auto !important; max-width: none !important;
+    }
+    .st-key-effects_panel div[data-testid="stPopover"] button {
+        width: 2.2rem !important; min-width: 2.2rem; max-width: 2.2rem;
+        height: 2.2rem; min-height: 2.2rem; padding: 0;
+        border: 0; border-radius: 50%; background: var(--forest); color: #fff;
+        font-size: 1.35rem; line-height: 1;
+    }
+    .st-key-effects_panel div[data-testid="stPopover"] button:hover {
+        background: var(--forest-light); color: #fff;
+    }
+    .effect-chip {
+        display: inline-flex; align-items: center; min-height: 1.9rem;
+        padding: 0.25rem 0.65rem; border: 1px solid rgba(25, 60, 50, 0.16);
+        border-radius: 999px; background: rgba(42, 157, 143, 0.12);
+        color: var(--forest); font-size: 0.8rem; font-weight: 600;
+    }
+    .effects-empty {
+        margin-top: 1rem; padding: 1.15rem 0.6rem;
+        border: 1px dashed rgba(25, 60, 50, 0.24); border-radius: 5px;
+        background: rgba(243, 242, 235, 0.55); color: var(--muted);
+        font-size: 0.82rem; text-align: center;
     }
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPopover"]) {
         align-items: center; gap: 0.5rem; padding: 0.35rem 0.55rem;
@@ -222,6 +307,12 @@ if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
 if "die_actions" not in st.session_state:
     st.session_state.die_actions = {}
+if "active_effects" not in st.session_state:
+    st.session_state.active_effects = []
+if "bosses" not in st.session_state:
+    st.session_state.bosses = []
+for boss in st.session_state.bosses:
+    boss.setdefault("id", uuid.uuid4().hex)
 
 
 def save_die_color(color_id: str, widget_key: str) -> None:
@@ -230,6 +321,21 @@ def save_die_color(color_id: str, widget_key: str) -> None:
 
 def save_die_action(die_id: str, widget_key: str) -> None:
     st.session_state.die_actions[die_id] = st.session_state[widget_key]
+
+
+def add_effect(effect_name: str) -> None:
+    if effect_name not in st.session_state.active_effects:
+        st.session_state.active_effects.append(effect_name)
+
+
+def remove_effect(effect_index: int) -> None:
+    del st.session_state.active_effects[effect_index]
+
+
+def remove_boss(boss_id: str) -> None:
+    st.session_state.bosses = [
+        boss for boss in st.session_state.bosses if boss["id"] != boss_id
+    ]
 
 
 st.markdown(
@@ -388,3 +494,157 @@ with results:
         st.metric("Roll", sum(all_values))
     else:
         st.info("Wähle links Würfel aus und starte deinen Wurf.")
+
+with empty_space:
+    with st.container(key="boss_hp_panel"):
+        title_column, add_column = st.columns([4, 1], vertical_alignment="center")
+        with title_column:
+            st.markdown('<div class="boss-panel-title">Gegner-HP</div>', unsafe_allow_html=True)
+            st.caption(f"{len(st.session_state.bosses)} / {MAX_BOSSES} HP-Leisten")
+        with add_column:
+            with st.popover(
+                "+",
+                help="Gegner hinzufügen",
+                use_container_width=False,
+                disabled=len(st.session_state.bosses) >= MAX_BOSSES,
+            ):
+                with st.form("add_boss_form", clear_on_submit=True):
+                    new_boss_name = st.text_input("Name des Gegners", key="new_boss_name")
+                    new_boss_hp = st.number_input(
+                        "Maximale HP",
+                        min_value=1,
+                        max_value=1300,
+                        value=100,
+                        step=1,
+                        key="new_boss_hp",
+                    )
+                    add_boss_submitted = st.form_submit_button(
+                        "Gegner hinzufügen", type="primary", use_container_width=True
+                    )
+                if add_boss_submitted:
+                    if len(st.session_state.bosses) >= MAX_BOSSES:
+                        st.error(f"Es können höchstens {MAX_BOSSES} HP-Leisten angelegt werden.")
+                    elif new_boss_name.strip():
+                        st.session_state.bosses.append(
+                            {
+                                "id": uuid.uuid4().hex,
+                                "name": new_boss_name.strip(),
+                                "max_hp": new_boss_hp,
+                                "current_hp": new_boss_hp,
+                            }
+                        )
+                    else:
+                        st.error("Bitte gib einen Gegnernamen ein.")
+
+        if not st.session_state.bosses:
+            st.markdown('<div class="effects-empty">Noch keine Gegner angelegt</div>', unsafe_allow_html=True)
+
+        for boss_index, boss in enumerate(st.session_state.bosses):
+            boss_id = boss["id"]
+            with st.container(key=f"boss_card_{boss_id}"):
+                name_column, delete_column = st.columns([4, 1.3], vertical_alignment="center")
+                with name_column:
+                    dead_marker = " 💀" if boss["current_hp"] == 0 else ""
+                    st.markdown(f"**{boss['name']}**{dead_marker}")
+                with delete_column:
+                    st.button(
+                        "🗑️",
+                        key=f"delete_boss_{boss_id}",
+                        help=f'{boss["name"]} löschen',
+                        on_click=remove_boss,
+                        args=(boss_id,),
+                    )
+                st.progress(
+                    boss["current_hp"] / boss["max_hp"],
+                    text=f'{boss["current_hp"]} / {boss["max_hp"]} HP',
+                )
+                with st.popover(
+                    "⚙️",
+                    key=f"edit_boss_{boss_id}",
+                    help="Bearbeiten: Name oder maximale HP ändern",
+                    use_container_width=False,
+                ):
+                    with st.form(f"edit_boss_form_{boss_id}"):
+                        edited_name = st.text_input(
+                            "Name des Gegners",
+                            value=boss["name"],
+                            key=f"boss_name_{boss_id}",
+                        )
+                        edited_max_hp = st.number_input(
+                            "Maximale HP",
+                            min_value=1,
+                            max_value=1300,
+                            value=boss["max_hp"],
+                            step=1,
+                            key=f"boss_max_hp_{boss_id}",
+                        )
+                        edit_submitted = st.form_submit_button(
+                            "Speichern", type="primary", use_container_width=True
+                        )
+                    if edit_submitted:
+                        if edited_name.strip():
+                            boss["name"] = edited_name.strip()
+                            boss["max_hp"] = edited_max_hp
+                            boss["current_hp"] = min(boss["current_hp"], edited_max_hp)
+                            st.rerun()
+                        else:
+                            st.error("Der Gegnername darf nicht leer sein.")
+
+                with st.form(f"boss_hp_change_form_{boss_id}"):
+                    hp_change = st.text_input(
+                        "HP ändern",
+                        key=f"hp_change_{boss_id}",
+                        placeholder="+13 oder -13",
+                        help="Positive Zahl heilt, negative Zahl verursacht Schaden.",
+                    )
+                    change_submitted = st.form_submit_button(
+                        "Anwenden", key=f"apply_hp_change_{boss_id}", use_container_width=True
+                    )
+                if change_submitted:
+                    try:
+                        hp_delta = int(hp_change.strip())
+                    except ValueError:
+                        st.error("Bitte gib eine ganze Zahl ein, zum Beispiel +13 oder -13.")
+                    else:
+                        boss["current_hp"] = max(
+                            0, min(boss["max_hp"], boss["current_hp"] + hp_delta)
+                        )
+                        st.rerun()
+
+    with st.container(key="effects_panel"):
+        title_column, add_column = st.columns([4, 1], vertical_alignment="center")
+        with title_column:
+            st.markdown('<div class="effects-panel-title">Effekte</div>', unsafe_allow_html=True)
+        with add_column:
+            with st.popover("+", help="Effekt hinzufügen", use_container_width=False):
+                selected_effect = st.selectbox(
+                    "Effekt auswählen",
+                    EFFECTS,
+                    key="effect_to_add",
+                    label_visibility="collapsed",
+                )
+                st.button(
+                    "Hinzufügen",
+                    key="add_effect_button",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=selected_effect in st.session_state.active_effects,
+                    on_click=add_effect,
+                    args=(selected_effect,),
+                )
+
+        if st.session_state.active_effects:
+            for effect_index, effect in enumerate(st.session_state.active_effects):
+                effect_column, remove_column = st.columns([5, 1], vertical_alignment="center")
+                with effect_column:
+                    st.markdown(f'<span class="effect-chip">{effect}</span>', unsafe_allow_html=True)
+                with remove_column:
+                    st.button(
+                        "×",
+                        key=f"remove_effect_{effect_index}",
+                        help=f"{effect} entfernen",
+                        on_click=remove_effect,
+                        args=(effect_index,),
+                    )
+        else:
+            st.markdown('<div class="effects-empty">Keine Effekte aktiv</div>', unsafe_allow_html=True)
