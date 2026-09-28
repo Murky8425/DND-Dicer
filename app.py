@@ -177,8 +177,7 @@ with controls:
             )
         with color_column:
             with st.popover(
-                "Farben",
-                icon="🎨",
+                "🎨 Farben",
                 help="Farben der einzelnen Würfel festlegen",
                 use_container_width=True,
             ):
