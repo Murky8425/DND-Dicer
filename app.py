@@ -4,6 +4,7 @@ import uuid
 import streamlit as st
 
 
+# Seitentitel und zentrale Einstellungen für Würfel, Farben und Effekte.
 st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
 
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
@@ -39,21 +40,21 @@ EFFECTS = [
 
 
 def readable_text_color(hex_color: str) -> str:
-    """Choose dark or light text for legible labels on a selected die color."""
+    """Wählt anhand der Helligkeit einer Würfelfarbe eine gut lesbare Textfarbe."""
     red, green, blue = (int(hex_color[index : index + 2], 16) for index in (1, 3, 5))
     luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
     return "#17211E" if luminance > 0.58 else "#FFFFFF"
 
 
 def darken_color(hex_color: str, factor: float = 0.22) -> str:
-    """Return a darker version of the given hex color."""
+    """Verdunkelt eine Hex-Farbe um den angegebenen Anteil."""
     red, green, blue = (int(hex_color[index : index + 2], 16) for index in (1, 3, 5))
     darkened = tuple(max(0, int(channel * (1 - factor))) for channel in (red, green, blue))
     return "#" + "".join(f"{channel:02x}" for channel in darkened)
 
 
 def die_action_icon(symbol_name: str) -> str:
-    """Map the action symbol selection to an emoji glyph."""
+    """Ordnet einer Aktionsauswahl das passende Symbol zu."""
     icons = {
         "Keine": "",
         "Heilung": "❤️",
@@ -65,7 +66,7 @@ def die_action_icon(symbol_name: str) -> str:
 
 
 def die_shape_style(die_type: str) -> str:
-    """Return CSS for the small symbol shown at the bottom right of each die."""
+    """Liefert CSS für die Form des kleinen Würfelsymbols."""
     shapes = {
         "D2": "border-radius: 50%; width: 14px; height: 14px;",
         "D4": "width: 14px; height: 14px; transform: rotate(45deg); border-radius: 3px;",
@@ -80,6 +81,7 @@ def die_shape_style(die_type: str) -> str:
     return shapes.get(die_type, "border-radius: 4px; width: 14px; height: 14px;")
 
 
+# Gestaltung der Streamlit-Oberfläche und der gerollten Würfel.
 st.markdown(
     """
     <style>
@@ -303,6 +305,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+# Spielzustand initialisieren und IDs für gespeicherte Gegner ergänzen.
 if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
 if "die_actions" not in st.session_state:
@@ -316,36 +319,44 @@ for boss in st.session_state.bosses:
 
 
 def save_die_color(color_id: str, widget_key: str) -> None:
+    """Übernimmt eine geänderte Würfelfarbe in den gespeicherten Spielzustand."""
     st.session_state.die_colors[color_id] = st.session_state[widget_key]
 
 
 def save_die_action(die_id: str, widget_key: str) -> None:
+    """Speichert das Aktionssymbol, das einem Würfel zugewiesen wurde."""
     st.session_state.die_actions[die_id] = st.session_state[widget_key]
 
 
 def sync_count_from_slider(die_type: str) -> None:
+    """Synchronisiert den Zahlenwert mit dem Schieberegler eines Würfeltyps."""
     st.session_state[f"count_input_{die_type}"] = st.session_state[f"count_{die_type}"]
 
 
 def sync_count_from_input(die_type: str) -> None:
+    """Synchronisiert den Schieberegler mit dem Zahlenwert eines Würfeltyps."""
     st.session_state[f"count_{die_type}"] = st.session_state[f"count_input_{die_type}"]
 
 
 def add_effect(effect_name: str) -> None:
+    """Fügt einen aktiven Effekt hinzu, sofern er noch nicht vorhanden ist."""
     if effect_name not in st.session_state.active_effects:
         st.session_state.active_effects.append(effect_name)
 
 
 def remove_effect(effect_index: int) -> None:
+    """Entfernt einen aktiven Effekt anhand seiner Position in der Liste."""
     del st.session_state.active_effects[effect_index]
 
 
 def remove_boss(boss_id: str) -> None:
+    """Entfernt den Gegner mit der angegebenen ID aus der HP-Verwaltung."""
     st.session_state.bosses = [
         boss for boss in st.session_state.bosses if boss["id"] != boss_id
     ]
 
 
+# Kopfbereich und dreispaltiges Hauptlayout der App.
 st.markdown(
     """
     <header class="masthead">
@@ -359,6 +370,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
 controls, results, empty_space = st.columns([1, 2, 1], gap="large")
 with controls:
     st.subheader("Würfel auswählen")
@@ -456,6 +468,7 @@ with controls:
         disabled=total_count == 0,
     )
 
+# Bei einer Aktion würfeln und das Ergebnis für spätere Reruns sichern.
 if roll_clicked:
     result_groups = []
     for die_type, count in counts.items():
@@ -481,6 +494,7 @@ if roll_clicked:
         )
     st.session_state.last_roll = {"groups": result_groups}
 
+# Würfelergebnisse samt Einzelsummen und Gesamtsumme anzeigen.
 with results:
     st.subheader("Auswertung")
     if "last_roll" in st.session_state:
@@ -524,6 +538,7 @@ with results:
     else:
         st.info("Wähle links Würfel aus und starte deinen Wurf.")
 
+# Gegner-HP verwalten: Gegner anlegen, bearbeiten, heilen oder verletzen.
 with empty_space:
     with st.container(key="boss_hp_panel"):
         title_column, add_column = st.columns([4, 1], vertical_alignment="center")
@@ -640,6 +655,7 @@ with empty_space:
                         )
                         st.rerun()
 
+    # Aktive Status-Effekte verwalten.
     with st.container(key="effects_panel"):
         title_column, add_column = st.columns([4, 1], vertical_alignment="center")
         with title_column:
