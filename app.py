@@ -323,6 +323,14 @@ def save_die_action(die_id: str, widget_key: str) -> None:
     st.session_state.die_actions[die_id] = st.session_state[widget_key]
 
 
+def sync_count_from_slider(die_type: str) -> None:
+    st.session_state[f"count_input_{die_type}"] = st.session_state[f"count_{die_type}"]
+
+
+def sync_count_from_input(die_type: str) -> None:
+    st.session_state[f"count_{die_type}"] = st.session_state[f"count_input_{die_type}"]
+
+
 def add_effect(effect_name: str) -> None:
     if effect_name not in st.session_state.active_effects:
         st.session_state.active_effects.append(effect_name)
@@ -356,18 +364,16 @@ with controls:
     st.subheader("Würfel auswählen")
     counts = {}
     for die_type in DICE:
-        type_column, count_column, settings_column = st.columns([0.55, 1.1, 2.25], gap="small")
+        slider_key = f"count_{die_type}"
+        input_key = f"count_input_{die_type}"
+        if slider_key not in st.session_state:
+            st.session_state[slider_key] = 0
+        if input_key not in st.session_state:
+            st.session_state[input_key] = st.session_state[slider_key]
+
+        type_column, settings_column = st.columns([0.55, 3.35], gap="small")
         with type_column:
             st.markdown(f'<div class="type-label">{die_type}</div>', unsafe_allow_html=True)
-        with count_column:
-            counts[die_type] = st.slider(
-                f"Anzahl {die_type}",
-                min_value=0,
-                max_value=32,
-                value=0,
-                key=f"count_{die_type}",
-                label_visibility="collapsed",
-            )
         with settings_column:
             with st.popover(
                 "⚙️ Einstellungen",
@@ -375,11 +381,11 @@ with controls:
                 use_container_width=False,
             ):
                 st.caption(f"Würfel für {die_type}")
-                if counts[die_type] == 0:
+                if st.session_state[slider_key] == 0:
                     st.caption("Wähle zuerst mindestens einen Würfel dieser Art.")
                 else:
                     symbol_options = ["Keine", "Heilung", "Angriff", "Gift", "Ausweichen"]
-                    for die_index in range(counts[die_type]):
+                    for die_index in range(st.session_state[slider_key]):
                         color_id = f"{die_type}_{die_index + 1}"
                         action_id = color_id
                         color_key = f"color_{color_id}"
@@ -414,6 +420,29 @@ with controls:
                                 label_visibility="collapsed",
                             )
                             st.session_state.die_actions[action_id] = selected_action
+
+        slider_column, input_column = st.columns([2, 1], gap="small")
+        with slider_column:
+            counts[die_type] = st.slider(
+                f"Anzahl {die_type}",
+                min_value=0,
+                max_value=32,
+                key=slider_key,
+                on_change=sync_count_from_slider,
+                args=(die_type,),
+                label_visibility="collapsed",
+            )
+        with input_column:
+            st.number_input(
+                f"Direktwert {die_type}",
+                min_value=0,
+                max_value=32,
+                step=1,
+                key=input_key,
+                on_change=sync_count_from_input,
+                args=(die_type,),
+                label_visibility="collapsed",
+            )
 
     total_count = sum(counts.values())
     st.markdown(
@@ -594,7 +623,7 @@ with empty_space:
                     hp_change = st.text_input(
                         "HP ändern",
                         key=f"hp_change_{boss_id}",
-                        placeholder="+13 oder -13",
+                        placeholder="+ HP hinzufügen,- HP abziehen",
                         help="Positive Zahl heilt, negative Zahl verursacht Schaden.",
                     )
                     change_submitted = st.form_submit_button(
