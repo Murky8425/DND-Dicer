@@ -136,6 +136,10 @@ st.markdown(
         box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
     }
     .boss-panel-title { color: var(--forest); font-size: 1rem; font-weight: 700; }
+    .st-key-dice_selector_heading h2,
+    .st-key-dice_selector_heading h3 {
+        color: #000 !important;
+    }
     .st-key-boss_hp_panel div[data-testid="stPopover"] {
         display: inline-flex !important; width: auto !important;
     }
@@ -157,6 +161,34 @@ st.markdown(
         background: rgba(243, 242, 235, 0.48);
     }
     .boss-name { color: var(--forest); font-weight: 700; }
+    .st-key-boss_hp_panel [class*="st-key-boss_card_"] [data-testid="stMarkdownContainer"] p {
+        color: #000 !important;
+    }
+    .st-key-boss_hp_panel [data-testid="stProgress"] [data-testid="stMarkdownContainer"] {
+        color: #000 !important;
+    }
+    .st-key-boss_hp_panel [data-testid="stProgressBarTrack"] {
+        background-color: #e6e6e6 !important;
+    }
+    .st-key-boss_hp_panel [data-testid="stProgressBarTrack"] > div {
+        background-color: var(--coral) !important;
+    }
+    .st-key-boss_hp_panel [data-testid="stWidgetLabel"] p,
+    .st-key-boss_hp_panel label {
+        color: #000 !important;
+    }
+    .st-key-boss_hp_panel [data-testid="stCaptionContainer"] {
+        color: #000 !important;
+    }
+    .st-key-boss_hp_panel [class*="st-key-apply_hp_change_"] button {
+        background: #098aed; border-color: #098aed; color: #fff !important;
+    }
+    .st-key-boss_hp_panel [class*="st-key-apply_hp_change_"] button * {
+        color: #fff !important;
+    }
+    .st-key-boss_hp_panel [class*="st-key-apply_hp_change_"] button:hover {
+        background: #ff7575; border-color: #ff7575; color: #fff !important;
+    }
     .st-key-boss_hp_panel [class*="st-key-delete_boss_"] button {
         width: 3rem; min-width: 3rem; height: 2.5rem; padding: 0;
     }
@@ -373,7 +405,8 @@ st.markdown(
 # Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
 controls, results, empty_space = st.columns([1, 2, 1], gap="large")
 with controls:
-    st.subheader("Würfel auswählen")
+    with st.container(key="dice_selector_heading"):
+        st.subheader("Würfel auswählen")
     counts = {}
     for die_type in DICE:
         slider_key = f"count_{die_type}"
