@@ -37,6 +37,18 @@ EFFECTS = [
     "Fasziniert",
     "Betäubt",
 ]
+ELEMENTS = [
+    "Feuer",
+    "Eis",
+    "Gift",
+    "Licht",
+    "Schatten",
+    "Pflanzen",
+    "Gestein",
+    "Metall",
+    "Wasser",
+    "Juwel",
+]
 
 
 def readable_text_color(hex_color: str) -> str:
@@ -348,6 +360,8 @@ if "bosses" not in st.session_state:
     st.session_state.bosses = []
 for boss in st.session_state.bosses:
     boss.setdefault("id", uuid.uuid4().hex)
+    boss.setdefault("token", 1)
+    boss.setdefault("element", ELEMENTS[0])
 
 
 def save_die_color(color_id: str, widget_key: str) -> None:
@@ -587,6 +601,19 @@ with empty_space:
             ):
                 with st.form("add_boss_form", clear_on_submit=True):
                     new_boss_name = st.text_input("Name des Gegners", key="new_boss_name")
+                    new_boss_element = st.selectbox(
+                        "Element",
+                        ELEMENTS,
+                        key="new_boss_element",
+                    )
+                    new_boss_token = st.number_input(
+                        "Monstertoken",
+                        min_value=1,
+                        max_value=25,
+                        value=1,
+                        step=1,
+                        key="new_boss_token",
+                    )
                     new_boss_hp = st.number_input(
                         "Maximale HP",
                         min_value=1,
@@ -606,6 +633,8 @@ with empty_space:
                             {
                                 "id": uuid.uuid4().hex,
                                 "name": new_boss_name.strip(),
+                                "element": new_boss_element,
+                                "token": new_boss_token,
                                 "max_hp": new_boss_hp,
                                 "current_hp": new_boss_hp,
                             }
@@ -623,6 +652,8 @@ with empty_space:
                 with name_column:
                     dead_marker = " 💀" if boss["current_hp"] == 0 else ""
                     st.markdown(f"**{boss['name']}**{dead_marker}")
+                    st.caption(f"Element: {boss['element']}")
+                    st.caption(f"Monstertoken: {boss['token']}")
                 with delete_column:
                     st.button(
                         "🗑️",
@@ -647,6 +678,20 @@ with empty_space:
                             value=boss["name"],
                             key=f"boss_name_{boss_id}",
                         )
+                        edited_element = st.selectbox(
+                            "Element",
+                            ELEMENTS,
+                            index=ELEMENTS.index(boss["element"]),
+                            key=f"boss_element_{boss_id}",
+                        )
+                        edited_token = st.number_input(
+                            "Monstertoken",
+                            min_value=1,
+                            max_value=25,
+                            value=boss["token"],
+                            step=1,
+                            key=f"boss_token_{boss_id}",
+                        )
                         edited_max_hp = st.number_input(
                             "Maximale HP",
                             min_value=1,
@@ -661,6 +706,8 @@ with empty_space:
                     if edit_submitted:
                         if edited_name.strip():
                             boss["name"] = edited_name.strip()
+                            boss["element"] = edited_element
+                            boss["token"] = edited_token
                             boss["max_hp"] = edited_max_hp
                             boss["current_hp"] = min(boss["current_hp"], edited_max_hp)
                             st.rerun()
