@@ -1,6 +1,8 @@
 # DND-Dicer
 
 Ein virtueller Würfelbecher für Dungeons & Dragons, umgesetzt mit Streamlit.
+Neben dem Würfelmodus gibt es einen Bildmodus, in dem ein hochgeladenes Bild groß
+angezeigt wird. Ein neuer Upload ersetzt das bisher angezeigte Bild.
 
 ## Starten
 

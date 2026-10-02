@@ -261,6 +261,7 @@ st.markdown(
         text-transform: uppercase; letter-spacing: 0.09em;
     }
     .result-title { color: var(--forest); font-size: 1.05rem; font-weight: 700; margin-top: 0.25rem; }
+    .image-mode-preview { margin-top: 1rem; }
     div[data-testid="stMetric"] {
         background: rgba(255, 255, 255, 0.62); border-left: 3px solid var(--coral);
         padding: 0.8rem 1rem; border-radius: 4px;
@@ -345,6 +346,40 @@ st.markdown(
         .masthead-mark { font-size: 0.9rem; padding: 0.45rem 0.6rem; }
         .hero-subtitle { max-width: 26rem; }
     }
+    .stApp { --text-color: #000; color: #000 !important; }
+    .stApp *:not(.die):not(.die *) { color: #000 !important; }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"],
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] * {
+        color: #fff !important;
+    }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button {
+        background: #444 !important;
+        border-color: #444 !important;
+    }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button,
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button * {
+        font-size: 0 !important;
+    }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button::after {
+        content: "Upload";
+        color: #fff !important;
+        font-size: 0.9rem !important;
+    }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button:hover {
+        background: #333 !important;
+        border-color: #333 !important;
+    }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] button,
+    .st-key-effects_panel div[data-testid="stPopover"] button,
+    div.stButton > button[kind="primary"] {
+        background: var(--paper) !important;
+        border-color: rgba(25, 60, 50, 0.25) !important;
+    }
+    .st-key-boss_hp_panel div[data-testid="stPopover"] button:hover,
+    .st-key-effects_panel div[data-testid="stPopover"] button:hover,
+    div.stButton > button[kind="primary"]:hover {
+        background: #e4e9e4 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -415,6 +450,33 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+mode = st.radio(
+    "Modus",
+    ["Würfel-Modus", "Bild-Modus"],
+    horizontal=True,
+    key="app_mode",
+)
+
+if mode == "Bild-Modus":
+    st.subheader("Bild anzeigen")
+    upload_column, _ = st.columns([1, 1])
+    with upload_column:
+        st.caption("Bild hierher ziehen oder über Upload auswählen.")
+        uploaded_image = st.file_uploader(
+            "Bild hochladen",
+            type=["png", "jpg", "jpeg", "webp", "gif"],
+            key="display_image_upload",
+        )
+    if uploaded_image is not None:
+        st.session_state.display_image = uploaded_image.getvalue()
+
+    if st.session_state.get("display_image") is not None:
+        with st.container(key="image_mode_preview"):
+            st.image(st.session_state.display_image, use_container_width=True)
+    else:
+        st.info("Lade ein Bild hoch, um es hier groß anzuzeigen.")
+    st.stop()
 
 # Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
 controls, results, empty_space = st.columns([1, 2, 1], gap="large")
