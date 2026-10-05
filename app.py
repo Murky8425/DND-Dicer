@@ -9,6 +9,8 @@ st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
 
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
 MAX_BOSSES = 10
+ROLL_GLYPHS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%*+=?~^"
+ROLL_STEPS = 12
 DICE = {
     "D2": 2,
     "D4": 4,
@@ -19,7 +21,6 @@ DICE = {
     "D20": 20,
     "D50": 50,
     "D100": 100,
-    "D100": 250,
 }
 EFFECTS = [
     "Vergiftet",
@@ -76,6 +77,21 @@ def die_action_icon(symbol_name: str) -> str:
         "Ausweichen": "💨",
     }
     return icons.get(symbol_name, "")
+
+
+def die_face(die_type: str, value: int) -> str:
+    """Formatiert das sichtbare Ergebnis eines Würfels."""
+    if die_type == "D2":
+        return "X" if value == 1 else "O"
+    return str(value)
+
+
+def scramble_frames(face: str) -> list[str]:
+    """Erzeugt Symbolzeilen für die Animation bis zum Würfelergebnis."""
+    return [
+        "".join(random.choice(ROLL_GLYPHS) for _ in face)
+        for _ in range(ROLL_STEPS)
+    ]
 
 
 def die_shape_style(die_type: str) -> str:
@@ -311,15 +327,22 @@ st.markdown(
                     inset 0 2px 0 rgba(255,255,255,0.28),
                     inset -8px -10px 18px rgba(0,0,0,0.12);
         transform: perspective(700px) rotateX(8deg) rotateY(-8deg);
-        animation: die-arrive 320ms ease-out both;
     }
     .die-label {
         position: absolute; top: 10px; left: 12px; font-size: 0.62rem;
         font-weight: 700; letter-spacing: 0.06em; opacity: 0.82;
     }
     .die-value {
+        display: block; height: 1em; overflow: hidden;
         font-size: clamp(2.2rem, 2.7vw, 3.2rem); line-height: 1;
         font-weight: 800; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+    .die-reel {
+        display: flex; flex-direction: column; align-items: center;
+    }
+    .die-reel-face {
+        display: flex; flex: 0 0 1em; height: 1em;
+        align-items: center; justify-content: center; white-space: nowrap;
     }
     .die-symbol {
         position: absolute; right: 10px; bottom: 8px; width: 18px; height: 18px;
@@ -336,9 +359,8 @@ st.markdown(
         display: block; background: currentColor; border: 1px solid rgba(0,0,0,0.08);
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
     }
-    @keyframes die-arrive {
-        from { opacity: 0; transform: translateY(8px) rotate(-2deg); }
-        to { opacity: 1; transform: translateY(0) rotate(0); }
+    @media (prefers-reduced-motion: reduce) {
+        .die-reel { animation: none !important; transform: translateY(-12em); }
     }
     @media (max-width: 720px) {
         .block-container { padding-top: 1.2rem; }
@@ -594,21 +616,40 @@ if roll_clicked:
             st.session_state.die_actions.get(f"{die_type}_{die_index + 1}", "Keine")
             for die_index in range(count)
         ]
+        values = [random.randint(1, DICE[die_type]) for _ in range(count)]
         result_groups.append(
             {
                 "type": die_type,
-                "values": [random.randint(1, DICE[die_type]) for _ in range(count)],
+                "values": values,
                 "colors": colors,
                 "actions": actions,
+                "scrambles": [
+                    scramble_frames(die_face(die_type, value)) for value in values
+                ],
             }
         )
-    st.session_state.last_roll = {"groups": result_groups}
+    st.session_state.last_roll = {
+        "groups": result_groups,
+        "animation_id": uuid.uuid4().hex,
+    }
 
 # Würfelergebnisse samt Einzelsummen und Gesamtsumme anzeigen.
 with results:
     st.subheader("Auswertung")
     if "last_roll" in st.session_state:
         result = st.session_state.last_roll
+        animation_name = f"die-roll-{result['animation_id']}"
+        st.markdown(
+            f"""
+            <style>
+            @keyframes {animation_name} {{
+                from {{ transform: translateY(0); }}
+                to {{ transform: translateY(-{ROLL_STEPS}em); }}
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         result_summary = " + ".join(
             f"{len(group['values'])}× {group['type']}" for group in result["groups"]
         )
@@ -621,21 +662,31 @@ with results:
         die_index = 0
         all_values = []
         for group in result["groups"]:
-            for group_die_index, (value, color, action) in enumerate(
-                zip(group["values"], group["colors"], group["actions"]), start=1
+            group.setdefault(
+                "scrambles",
+                [scramble_frames(die_face(group["type"], value)) for value in group["values"]],
+            )
+            for value, color, action, scramble in zip(
+                group["values"], group["colors"], group["actions"], group["scrambles"]
             ):
                 all_values.append(value)
-                face = ("X" if value == 1 else "O") if group["type"] == "D2" else str(value)
+                face = die_face(group["type"], value)
                 die_bg = darken_color(color, 0.2)
                 text_color = readable_text_color(die_bg)
                 action_symbol = die_action_icon(action)
+                animation_delay = min(die_index * 18, 540)
                 with result_columns[die_index % len(result_columns)]:
                     st.markdown(
                         f"""
                         <div class="die" style="background:linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08)), {die_bg}; color:{text_color};">
                             <span class="die-badge">{action_symbol}</span>
                             <span class="die-label">{group['type']}</span>
-                            <span class="die-value">{face}</span>
+                            <span class="die-value" role="img" aria-label="{face}">
+                                <span class="die-reel" aria-hidden="true" style="animation: {animation_name} 1300ms cubic-bezier(0.12, 0.68, 0.24, 1) {animation_delay}ms both;">
+                                    {''.join(f'<span class="die-reel-face">{frame}</span>' for frame in scramble)}
+                                    <span class="die-reel-face">{face}</span>
+                                </span>
+                            </span>
                             <span class="die-symbol">
                                 <span class="die-shape" style="{die_shape_style(group['type'])};"></span>
                             </span>
