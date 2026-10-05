@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 8px 0 12px; color: #193c32;
+            font: 14px/1.4 'DM Sans', sans-serif;
+        }
+        #app { width: 100%; }
+        .pin-hint { margin: 0 0 10px; color: #68766f; font-size: 13px; }
+        .board-shell {
+            display: flex; width: 100%; justify-content: center;
+            overflow: visible;
+        }
+        .image-wrap {
+            position: relative; display: block; width: 100%; max-width: 100%;
+            line-height: 0; cursor: crosshair;
+        }
+        .image-wrap img {
+            display: block; width: 100%; max-width: 100%; height: auto;
+        }
+        .pin-layer { position: absolute; inset: 0; pointer-events: none; }
+        .pin {
+            position: absolute; z-index: 1; width: 0; height: 0;
+            pointer-events: auto;
+        }
+        .pin-marker {
+            position: absolute; left: 0; top: 0; display: inline-flex;
+            width: 23px; height: 23px; align-items: center; justify-content: center;
+            border: 2px solid #fff; border-radius: 50%; background: #bd573d;
+            color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            font-size: 12px; font-weight: 700; line-height: 1;
+            transform: translate(-50%, -50%);
+        }
+        .pin-caption {
+            position: absolute; left: 15px; top: 0; display: flex;
+            align-items: center; gap: 5px; transform: translateY(-50%);
+        }
+        .pin-label {
+            display: block; max-width: 150px; overflow: hidden; padding: 4px 7px;
+            border: 2px solid #ffffff; border-radius: 6px;
+            background: #ffffff !important; color: #0b1116 !important; opacity: 1;
+            font-size: 12px; font-weight: 800; line-height: 1.2;
+            font-family: inherit; text-align: left; text-overflow: ellipsis;
+            white-space: nowrap; cursor: text;
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.96), 0 2px 10px rgba(0, 0, 0, 0.28);
+        }
+        .pin-label:hover { border-color: #dfeaf2; background: #ffffff !important; }
+        .pin-label-editor {
+            width: min(180px, 48vw); min-width: 100px; padding: 6px 9px;
+            border: 2px solid #ffffff; border-radius: 6px; outline: none;
+            background: #ffffff !important; color: #0b1116 !important; opacity: 1;
+            font: inherit;
+            font-size: 13px; font-weight: 700; line-height: 1.2;
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.96), 0 2px 10px rgba(0, 0, 0, 0.25);
+        }
+        .pin-remove {
+            display: inline-flex; width: 20px; height: 20px; align-items: center;
+            justify-content: center; padding: 0; border: 1px solid #fff;
+            border-radius: 50%; background: #193c32; color: #fff;
+            font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        }
+        .pin-remove:hover { background: #bd573d; }
+        @media (max-width: 600px) {
+            .pin-label { max-width: 100px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <main id="app"></main>
+    <script>
+        const app = document.getElementById('app');
+        let currentPins = [];
+        let selectedLabel = 'Monster';
+
+        function sendPins() {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: 'streamlit:setComponentValue',
+                value: currentPins,
+                dataType: 'json'
+            }, '*');
+        }
+
+        function updateHeight() {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: 'streamlit:setFrameHeight',
+                height: document.documentElement.scrollHeight
+            }, '*');
+        }
+
+        function renderPins(layer) {
+            layer.replaceChildren();
+            currentPins.forEach((pin, index) => {
+                const marker = document.createElement('div');
+                marker.className = 'pin';
+                marker.style.left = `${pin.x * 100}%`;
+                marker.style.top = `${pin.y * 100}%`;
+
+                const icon = document.createElement('span');
+                icon.className = 'pin-marker';
+                icon.setAttribute('aria-hidden', 'true');
+                const iconText = document.createElement('span');
+                iconText.textContent = String(index + 1);
+                icon.append(iconText);
+
+                const label = document.createElement('button');
+                label.className = 'pin-label';
+                label.type = 'button';
+                label.title = 'Zum Umbenennen anklicken';
+                label.textContent = pin.label;
+                label.addEventListener('click', event => {
+                    event.stopPropagation();
+                    const editor = document.createElement('input');
+                    editor.className = 'pin-label-editor';
+                    editor.type = 'text';
+                    editor.maxLength = 64;
+                    editor.value = pin.label;
+                    editor.setAttribute('aria-label', 'Pin umbenennen');
+                    let saveChanges = true;
+                    editor.addEventListener('keydown', keyEvent => {
+                        if (keyEvent.key === 'Enter') {
+                            keyEvent.preventDefault();
+                            editor.blur();
+                        } else if (keyEvent.key === 'Escape') {
+                            saveChanges = false;
+                            editor.blur();
+                        }
+                    });
+                    editor.addEventListener('blur', () => {
+                        const nextLabel = editor.value.trim();
+                        if (saveChanges && nextLabel) pin.label = nextLabel;
+                        renderPins(layer);
+                        if (saveChanges && nextLabel) sendPins();
+                    }, { once: true });
+                    label.replaceWith(editor);
+                    editor.focus();
+                    editor.select();
+                });
+
+                const caption = document.createElement('span');
+                caption.className = 'pin-caption';
+                caption.append(label);
+
+                const remove = document.createElement('button');
+                remove.className = 'pin-remove';
+                remove.type = 'button';
+                remove.title = 'Pin entfernen';
+                remove.setAttribute('aria-label', `${pin.label} entfernen`);
+                remove.textContent = '\u00d7';
+                caption.append(remove);
+                remove.addEventListener('click', event => {
+                    event.stopPropagation();
+                    currentPins = currentPins.filter(item => item.id !== pin.id);
+                    renderPins(layer);
+                    sendPins();
+                    updateHeight();
+                });
+
+                marker.append(icon, caption);
+                layer.append(marker);
+            });
+            updateHeight();
+        }
+
+        function render(args) {
+            currentPins = Array.isArray(args.pins) ? args.pins : [];
+            selectedLabel = args.selected_label || 'Monster';
+            app.replaceChildren();
+
+            const hint = document.createElement('p');
+            hint.className = 'pin-hint';
+            hint.textContent = `Bild anklicken, um einen Pin \u201e${selectedLabel}\u201c zu setzen.`;
+            app.append(hint);
+
+            const shell = document.createElement('div');
+            shell.className = 'board-shell';
+            const imageWrap = document.createElement('div');
+            imageWrap.className = 'image-wrap';
+            const image = document.createElement('img');
+            image.alt = 'Bild mit Monster- und Ortsmarkierungen';
+            image.src = `data:${args.image_type || 'image/png'};base64,${args.image_data}`;
+            const layer = document.createElement('div');
+            layer.className = 'pin-layer';
+
+            imageWrap.addEventListener('click', event => {
+                if (event.target.closest('.pin')) return;
+                const bounds = image.getBoundingClientRect();
+                if (!bounds.width || !bounds.height) return;
+                const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+                const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+                currentPins = [...currentPins, {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    x,
+                    y,
+                    label: selectedLabel
+                }];
+                renderPins(layer);
+                sendPins();
+            });
+
+            image.addEventListener('load', () => {
+                renderPins(layer);
+                updateHeight();
+            });
+            image.addEventListener('error', () => {
+                hint.textContent = 'Das Bild konnte nicht geladen werden.';
+                updateHeight();
+            });
+            imageWrap.append(image, layer);
+            shell.append(imageWrap);
+            app.append(shell);
+            if (image.complete && image.naturalWidth) renderPins(layer);
+            updateHeight();
+        }
+
+        window.addEventListener('message', event => {
+            if (event.data && event.data.type === 'streamlit:render') {
+                render(event.data.args || {});
+            }
+        });
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: 'streamlit:componentReady',
+            apiVersion: 1
+        }, '*');
+        new ResizeObserver(updateHeight).observe(document.body);
+    </script>
+</body>
+</html>

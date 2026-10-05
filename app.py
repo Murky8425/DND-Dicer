@@ -1,11 +1,17 @@
+import base64
 import random
 import uuid
+from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # Seitentitel und zentrale Einstellungen für Würfel, Farben und Effekte.
 st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
+image_pin_board = components.declare_component(
+    "image_pin_board", path=str(Path(__file__).parent / "image_pin_component")
+)
 
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
 MAX_BOSSES = 10
@@ -371,6 +377,35 @@ st.markdown(
     }
     .stApp { --text-color: #000; color: #000 !important; }
     .stApp *:not(.die):not(.die *) { color: #000 !important; }
+    .stApp .stTextInput input,
+    .stApp .stNumberInput input,
+    .stApp .stTextArea textarea,
+    .stApp [data-baseweb="select"] > div,
+    .stApp [data-testid="stSelectbox"] > div,
+    .stApp [data-testid="stSelectbox"] input,
+    .stApp [data-testid="stFileUploader"] input {
+        background: #ffffff !important;
+        color: #0b1116 !important;
+        border-color: #dfeaf2 !important;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+    }
+    .stApp .stTextInput label,
+    .stApp .stNumberInput label,
+    .stApp .stTextArea label,
+    .stApp [data-testid="stSelectbox"] label,
+    .stApp [data-testid="stFileUploader"] label {
+        color: #0b1116 !important;
+    }
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"],
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] path,
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] circle,
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] line,
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] polyline,
+    .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] path[d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"] {
+        color: #ffffff !important;
+        fill: #000000 !important;
+        stroke: #ffffff !important;
+    }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"],
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] * {
         color: #fff !important;
@@ -492,11 +527,32 @@ if mode == "Bild-Modus":
             key="display_image_upload",
         )
     if uploaded_image is not None:
-        st.session_state.display_image = uploaded_image.getvalue()
+        image_bytes = uploaded_image.getvalue()
+        if image_bytes != st.session_state.get("display_image"):
+            st.session_state.display_image = image_bytes
+            st.session_state.image_pins = []
+            st.session_state.image_pin_component_key = uuid.uuid4().hex
+        st.session_state.display_image_type = uploaded_image.type or "image/png"
 
     if st.session_state.get("display_image") is not None:
+        st.session_state.setdefault("image_pins", [])
+        st.session_state.setdefault("image_pin_component_key", uuid.uuid4().hex)
         with st.container(key="image_mode_preview"):
-            st.image(st.session_state.display_image, use_container_width=True)
+            selected_pin_label = st.selectbox(
+                "Pin-Beschriftung",
+                ["Monster", "Spieler", "Mimik", "Schatz", "Gefahr", "Ziel", "Sonstiges"],
+                key="image_pin_label",
+            )
+            pins = image_pin_board(
+                image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
+                image_type=st.session_state.get("display_image_type", "image/png"),
+                pins=st.session_state.image_pins,
+                selected_label=selected_pin_label,
+                key=f"image_pin_board_{st.session_state.image_pin_component_key}",
+                default=st.session_state.image_pins,
+            )
+            if pins is not None:
+                st.session_state.image_pins = pins
     else:
         st.info("Lade ein Bild hoch, um es hier groß anzuzeigen.")
     st.stop()
@@ -521,7 +577,6 @@ with controls:
         with settings_column:
             with st.popover(
                 "⚙️ Einstellungen",
-                help="Farben und Aktionssymbole der einzelnen Würfel festlegen",
                 use_container_width=False,
             ):
                 st.caption(f"Würfel für {die_type}")
@@ -709,7 +764,6 @@ with empty_space:
         with add_column:
             with st.popover(
                 "+",
-                help="Gegner hinzufügen",
                 use_container_width=False,
                 disabled=len(st.session_state.bosses) >= MAX_BOSSES,
             ):
@@ -772,7 +826,6 @@ with empty_space:
                     st.button(
                         "🗑️",
                         key=f"delete_boss_{boss_id}",
-                        help=f'{boss["name"]} löschen',
                         on_click=remove_boss,
                         args=(boss_id,),
                     )
@@ -783,7 +836,6 @@ with empty_space:
                 with st.popover(
                     "⚙️",
                     key=f"edit_boss_{boss_id}",
-                    help="Bearbeiten: Name oder maximale HP ändern",
                     use_container_width=False,
                 ):
                     with st.form(f"edit_boss_form_{boss_id}"):
@@ -833,7 +885,6 @@ with empty_space:
                         "HP ändern",
                         key=f"hp_change_{boss_id}",
                         placeholder="+ HP hinzufügen,- HP abziehen",
-                        help="Positive Zahl heilt, negative Zahl verursacht Schaden.",
                     )
                     change_submitted = st.form_submit_button(
                         "Anwenden", key=f"apply_hp_change_{boss_id}", use_container_width=True
@@ -855,7 +906,7 @@ with empty_space:
         with title_column:
             st.markdown('<div class="effects-panel-title">Effekte</div>', unsafe_allow_html=True)
         with add_column:
-            with st.popover("+", help="Effekt hinzufügen", use_container_width=False):
+            with st.popover("+", use_container_width=False):
                 selected_effect = st.selectbox(
                     "Effekt auswählen",
                     EFFECTS,
@@ -881,7 +932,6 @@ with empty_space:
                     st.button(
                         "×",
                         key=f"remove_effect_{effect_index}",
-                        help=f"{effect} entfernen",
                         on_click=remove_effect,
                         args=(effect_index,),
                     )
