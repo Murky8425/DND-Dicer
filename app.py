@@ -27,6 +27,7 @@ DICE = {
     "D20": 20,
     "D50": 50,
     "D100": 100,
+    "D250": 250,
 }
 EFFECTS = [
     "Vergiftet",
@@ -136,7 +137,7 @@ st.markdown(
         );
     }
     .block-container { max-width: 1440px; padding-top: 2rem; padding-bottom: 4rem; }
-    html, body, [class*="st-"] { font-family: 'DM Sans', sans-serif; }
+    html, body, .stApp { font-family: 'DM Sans', sans-serif; }
     h1, h2, h3 { color: var(--forest); }
     h2 { font-size: 1.15rem; }
     .eyebrow {
@@ -406,9 +407,13 @@ st.markdown(
         fill: #000000 !important;
         stroke: #ffffff !important;
     }
+    .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
+        background: color-mix(in srgb, var(--secondary-background-color) 35%, #fff) !important;
+        border-color: #c7ceca !important;
+    }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"],
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] * {
-        color: #fff !important;
+        color: #333 !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button {
         background: #444 !important;
