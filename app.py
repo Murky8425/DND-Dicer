@@ -403,9 +403,9 @@ st.markdown(
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] line,
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] polyline,
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] path[d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"] {
-        color: #ffffff !important;
-        fill: #000000 !important;
-        stroke: #ffffff !important;
+        color: #000000 !important;
+        fill: #ffffff !important;
+        stroke: #000000 !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
         background: color-mix(in srgb, var(--secondary-background-color) 35%, #fff) !important;
