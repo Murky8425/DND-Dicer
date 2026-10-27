@@ -122,19 +122,28 @@ st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap');
-    :root {
+    .stApp {
+        --app-text: #17211e;
+        --paper: #f3f2eb;
+        --panel: #ffffff;
         --forest: #193c32;
         --forest-light: #285c4d;
         --coral: #bd573d;
-        --paper: #f3f2eb;
         --muted: #68766f;
-    }
-    .stApp {
+        --menu-icon-fill: #ffffff;
+        --menu-icon-stroke: #17211e;
+        --panel-soft: color-mix(in srgb, var(--panel) 72%, var(--paper));
+        --line: rgba(25, 60, 50, 0.18);
         background-color: var(--paper);
         background-image: repeating-linear-gradient(
-            135deg, rgba(35, 64, 54, 0.025) 0, rgba(35, 64, 54, 0.025) 1px,
+            135deg, color-mix(in srgb, var(--app-text) 2%, transparent) 0,
+            color-mix(in srgb, var(--app-text) 2%, transparent) 1px,
             transparent 1px, transparent 12px
         );
+    }
+    [data-testid="stAppViewContainer"] { background-color: var(--paper); }
+    main#stMain {
+        background-color: var(--background-color, var(--paper)) !important;
     }
     .block-container { max-width: 1440px; padding-top: 2rem; padding-bottom: 4rem; }
     html, body, .stApp { font-family: 'DM Sans', sans-serif; }
@@ -159,6 +168,7 @@ st.markdown(
         font-size: 1.15rem; border: 1px solid rgba(25, 60, 50, 0.25);
         border-radius: 6px; padding: 0.55rem 0.8rem; white-space: nowrap;
     }
+    .masthead-mark span { color: var(--coral) !important; }
     .type-label {
         display: inline-flex; align-items: center; min-height: 2.4rem;
         color: var(--forest); font-size: 0.9rem; font-weight: 700;
@@ -168,13 +178,13 @@ st.markdown(
         margin-bottom: 1rem; padding: 1rem;
         border: 1px solid rgba(25, 60, 50, 0.18);
         border-top: 3px solid var(--coral); border-radius: 6px;
-        background: rgba(255, 255, 255, 0.72);
+        background: var(--panel);
         box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
     }
     .boss-panel-title { color: var(--forest); font-size: 1rem; font-weight: 700; }
     .st-key-dice_selector_heading h2,
     .st-key-dice_selector_heading h3 {
-        color: #000 !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel div[data-testid="stPopover"] {
         display: inline-flex !important; width: auto !important;
@@ -194,27 +204,27 @@ st.markdown(
     [class*="st-key-boss_card_"] {
         margin-top: 0.75rem; padding: 0.75rem;
         border: 1px solid rgba(25, 60, 50, 0.14); border-radius: 5px;
-        background: rgba(243, 242, 235, 0.48);
+        background: var(--panel-soft);
     }
     .boss-name { color: var(--forest); font-weight: 700; }
     .st-key-boss_hp_panel [class*="st-key-boss_card_"] [data-testid="stMarkdownContainer"] p {
-        color: #000 !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel [data-testid="stProgress"] [data-testid="stMarkdownContainer"] {
-        color: #000 !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel [data-testid="stProgressBarTrack"] {
-        background-color: #e6e6e6 !important;
+        background-color: var(--panel-soft) !important;
     }
     .st-key-boss_hp_panel [data-testid="stProgressBarTrack"] > div {
         background-color: var(--coral) !important;
     }
     .st-key-boss_hp_panel [data-testid="stWidgetLabel"] p,
     .st-key-boss_hp_panel label {
-        color: #000 !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel [data-testid="stCaptionContainer"] {
-        color: #000 !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel [class*="st-key-apply_hp_change_"] button {
         background: #098aed; border-color: #098aed; color: #fff !important;
@@ -231,7 +241,7 @@ st.markdown(
     .st-key-effects_panel {
         padding: 1rem; border: 1px solid rgba(25, 60, 50, 0.18);
         border-top: 3px solid var(--coral); border-radius: 6px;
-        background: rgba(255, 255, 255, 0.72);
+        background: var(--panel);
         box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
     }
     .st-key-effects_panel div[data-testid="stPopover"] {
@@ -258,14 +268,14 @@ st.markdown(
     .effects-empty {
         margin-top: 1rem; padding: 1.15rem 0.6rem;
         border: 1px dashed rgba(25, 60, 50, 0.24); border-radius: 5px;
-        background: rgba(243, 242, 235, 0.55); color: var(--muted);
+        background: var(--panel-soft); color: var(--muted);
         font-size: 0.82rem; text-align: center;
     }
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPopover"]) {
         align-items: center; gap: 0.5rem; padding: 0.35rem 0.55rem;
         margin-bottom: 0.55rem; border: 1px solid rgba(25, 60, 50, 0.16);
         border-left: 3px solid var(--coral); border-radius: 6px;
-        background: rgba(255, 255, 255, 0.58);
+        background: var(--panel-soft);
         box-sizing: border-box;
     }
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPopover"]) > div[data-testid="column"] {
@@ -287,7 +297,7 @@ st.markdown(
     .result-title { color: var(--forest); font-size: 1.05rem; font-weight: 700; margin-top: 0.25rem; }
     .image-mode-preview { margin-top: 1rem; }
     div[data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.62); border-left: 3px solid var(--coral);
+        background: var(--panel); border-left: 3px solid var(--coral);
         padding: 0.8rem 1rem; border-radius: 4px;
     }
     div[data-testid="stMetricLabel"] { color: var(--muted); }
@@ -300,7 +310,7 @@ st.markdown(
     }
     div[data-testid="stPopover"] button {
         min-height: 2.9rem; padding: 0.55rem 1.1rem; border-color: rgba(25, 60, 50, 0.25);
-        color: var(--forest); background: rgba(255, 255, 255, 0.55);
+        color: var(--forest); background: var(--panel);
         border-radius: 5px; font-size: 0.84rem; font-weight: 700;
         white-space: nowrap; min-width: 0; width: 100% !important;
         max-width: 100%; overflow: visible; text-overflow: clip;
@@ -324,6 +334,10 @@ st.markdown(
     div.stButton > button[kind="primary"]:hover {
         background: var(--forest-light); border-color: var(--forest-light);
         color: #fff; transform: translateY(-1px);
+    }
+    [class*="st-key-add_effect_button"] button,
+    [class*="st-key-add_effect_button"] button * {
+        color: var(--app-text) !important;
     }
     .die {
         position: relative; width: min(100%, 112px); aspect-ratio: 1;
@@ -376,8 +390,6 @@ st.markdown(
         .masthead-mark { font-size: 0.9rem; padding: 0.45rem 0.6rem; }
         .hero-subtitle { max-width: 26rem; }
     }
-    .stApp { --text-color: #000; color: #000 !important; }
-    .stApp *:not(.die):not(.die *) { color: #000 !important; }
     .stApp .stTextInput input,
     .stApp .stNumberInput input,
     .stApp .stTextArea textarea,
@@ -385,17 +397,17 @@ st.markdown(
     .stApp [data-testid="stSelectbox"] > div,
     .stApp [data-testid="stSelectbox"] input,
     .stApp [data-testid="stFileUploader"] input {
-        background: #ffffff !important;
-        color: #0b1116 !important;
-        border-color: #dfeaf2 !important;
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+        background: var(--panel) !important;
+        color: var(--app-text) !important;
+        border-color: var(--line) !important;
+        box-shadow: none;
     }
     .stApp .stTextInput label,
     .stApp .stNumberInput label,
     .stApp .stTextArea label,
     .stApp [data-testid="stSelectbox"] label,
     .stApp [data-testid="stFileUploader"] label {
-        color: #0b1116 !important;
+        color: var(--app-text) !important;
     }
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"],
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] path,
@@ -403,21 +415,38 @@ st.markdown(
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] line,
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] polyline,
     .stApp svg[viewBox="0 0 24 24"][fill="currentColor"] path[d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"] {
-        color: #000000 !important;
-        fill: #ffffff !important;
-        stroke: #000000 !important;
+        color: var(--app-text) !important;
+        fill: var(--app-text) !important;
+        stroke: var(--app-text) !important;
+    }
+    #MainMenu button {
+        color: var(--app-text) !important;
+        background: var(--panel) !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 6px;
+    }
+    #MainMenu button svg,
+    #MainMenu button svg * {
+        color: var(--app-text) !important;
+        fill: var(--menu-icon-fill) !important;
+        stroke: var(--menu-icon-stroke) !important;
+        opacity: 1 !important;
+    }
+    #MainMenu button:hover {
+        background: var(--panel-soft) !important;
+        border-color: var(--coral) !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
-        background: color-mix(in srgb, var(--secondary-background-color) 35%, #fff) !important;
-        border-color: #c7ceca !important;
+        background: var(--panel-soft) !important;
+        border-color: var(--line) !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"],
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] * {
-        color: #333 !important;
+        color: var(--app-text) !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button {
-        background: #444 !important;
-        border-color: #444 !important;
+        background: var(--app-text) !important;
+        border-color: var(--app-text) !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button,
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button * {
@@ -425,28 +454,76 @@ st.markdown(
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button::after {
         content: "Upload";
-        color: #fff !important;
+        color: var(--paper) !important;
         font-size: 0.9rem !important;
     }
     .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button:hover {
-        background: #333 !important;
-        border-color: #333 !important;
+        background: var(--forest-light) !important;
+        border-color: var(--forest-light) !important;
     }
     .st-key-boss_hp_panel div[data-testid="stPopover"] button,
     .st-key-effects_panel div[data-testid="stPopover"] button,
     div.stButton > button[kind="primary"] {
-        background: var(--paper) !important;
-        border-color: rgba(25, 60, 50, 0.25) !important;
+        background: var(--panel) !important;
+        border-color: var(--line) !important;
+        color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel div[data-testid="stPopover"] button:hover,
     .st-key-effects_panel div[data-testid="stPopover"] button:hover,
     div.stButton > button[kind="primary"]:hover {
-        background: #e4e9e4 !important;
+        background: var(--panel-soft) !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+@st.fragment(run_every="2s")
+def sync_theme_styles():
+    if st.context.theme.type == "dark":
+        st.markdown(
+            """
+            <style>
+            .stApp {
+                --app-text: #f0f3f1;
+                --paper: #151719;
+                --panel: #202326;
+                --forest: #e3e9e5;
+                --forest-light: #c8d6cf;
+                --coral: #ff9b80;
+                --muted: #a6b0ab;
+                --menu-icon-fill: #202326;
+                --menu-icon-stroke: #f0f3f1;
+                --panel-soft: #292d30;
+                --line: rgba(240, 245, 242, 0.18);
+                background-color: var(--paper) !important;
+                background-image: repeating-linear-gradient(
+                    135deg, rgba(240, 245, 242, 0.02) 0,
+                    rgba(240, 245, 242, 0.02) 1px,
+                    transparent 1px, transparent 12px
+                ) !important;
+            }
+            [data-testid="stAppViewContainer"],
+            main#stMain {
+                background-color: var(--paper) !important;
+            }
+            .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button {
+                background: #353535 !important;
+                border-color: #4b4b4b !important;
+            }
+            .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button::after {
+                color: #f0f3f1 !important;
+            }
+            .stApp [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button:hover {
+                background: #454545 !important;
+                border-color: #606060 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+sync_theme_styles()
 # Spielzustand initialisieren und IDs für gespeicherte Gegner ergänzen.
 if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
