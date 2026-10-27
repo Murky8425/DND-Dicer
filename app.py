@@ -668,6 +668,7 @@ def start_map_builder(map_index: int, collection_name: str = "generated_maps") -
     map_data.setdefault("builder_darkness_enabled", False)
     map_data.setdefault("builder_grid_visible", True)
     map_data.setdefault("builder_coordinates_visible", False)
+    map_data.setdefault("builder_light_markers_visible", True)
     map_data.setdefault("builder_svg", map_data["svg"])
     map_data.setdefault("builder_revision", 0)
     map_data.setdefault("builder_selected_id", None)
@@ -1102,6 +1103,7 @@ def render_map_builder(
         darkness_enabled=map_data["builder_darkness_enabled"],
         grid_visible=map_data["builder_grid_visible"],
         coordinates_visible=map_data["builder_coordinates_visible"],
+        light_markers_visible=map_data["builder_light_markers_visible"],
         selected_id=map_data.get("builder_selected_id"),
         selected_decoration=selected_decoration,
         selected_terrain_type=selected_terrain_type,
@@ -1119,6 +1121,7 @@ def render_map_builder(
             "darkness_enabled": map_data["builder_darkness_enabled"],
             "grid_visible": map_data["builder_grid_visible"],
             "coordinates_visible": map_data["builder_coordinates_visible"],
+            "light_markers_visible": map_data["builder_light_markers_visible"],
             "selected_id": map_data.get("builder_selected_id"),
             "revision": map_data["builder_revision"],
         },
@@ -1146,6 +1149,8 @@ def render_map_builder(
             map_data["builder_grid_visible"] = builder_state["grid_visible"]
         if isinstance(builder_state.get("coordinates_visible"), bool):
             map_data["builder_coordinates_visible"] = builder_state["coordinates_visible"]
+        if isinstance(builder_state.get("light_markers_visible"), bool):
+            map_data["builder_light_markers_visible"] = builder_state["light_markers_visible"]
         if isinstance(builder_state.get("revision"), int):
             map_data["builder_revision"] = builder_state["revision"]
         map_data["builder_selected_id"] = builder_state.get("selected_id")

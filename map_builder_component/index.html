@@ -63,14 +63,14 @@
         .builder-tool-group input:focus {
             outline: 2px solid rgba(189, 87, 61, 0.25); border-color: #bd573d;
         }
-        .builder-light-brightness {
+        .builder-light-control {
             flex: 1 1 100%; display: grid; grid-template-columns: auto minmax(70px, 1fr) 42px;
             align-items: center; gap: 8px; color: #52635b; font-size: 12px;
         }
-        .builder-light-brightness input[type="range"] {
+        .builder-light-control input[type="range"] {
             width: 100%; min-height: auto; padding: 0; accent-color: #bd573d;
         }
-        .builder-light-brightness output {
+        .builder-light-control output {
             color: #193c32; font-weight: 800; text-align: right;
         }
         @media (max-width: 520px) {
@@ -87,6 +87,7 @@
         const namespace = 'http://www.w3.org/2000/svg';
         const MAX_UNDO_STEPS = 5;
         const LIGHT_RADIUS = 180;
+        const MAX_LIGHT_RADIUS = 1000;
         let currentRooms = [];
         let currentEncounterPoints = [];
         let currentDecorations = [];
@@ -97,6 +98,7 @@
         let darknessEnabled = false;
         let gridVisible = true;
         let coordinatesVisible = false;
+        let lightMarkersVisible = true;
         let undoHistory = [];
         let redoHistory = [];
         let selectedId = null;
@@ -195,8 +197,7 @@
             const exportRoot = svgRoot.cloneNode(true);
             const exportedStairs = [...svgRoot.querySelectorAll('.builder-stair-marker')]
                 .map(marker => marker.cloneNode(true));
-            const exportedLights = [...svgRoot.querySelectorAll('.builder-light-marker')]
-                .map(marker => marker.cloneNode(true));
+            const exportedLights = currentLights.map(createLightMarker);
             const exportedEncounterPoints = [
                 ...svgRoot.querySelectorAll('.builder-encounter-point')
             ].map(cloneEncounterPointForExport);
@@ -246,6 +247,7 @@
                     darkness_enabled: darknessEnabled,
                     grid_visible: gridVisible,
                     coordinates_visible: coordinatesVisible,
+                    light_markers_visible: lightMarkersVisible,
                     selected_id: selectedId
                 },
                 dataType: 'json'
@@ -370,6 +372,10 @@
                 '[data-custom-room-id]',
                 '.builder-item'
             ].forEach(selector => {
+                if (selector === '.builder-light-marker') {
+                    currentLights.forEach(light => exportRoot.append(createLightMarker(light)));
+                    return;
+                }
                 svgRoot.querySelectorAll(selector).forEach(item => {
                     const copy = item.matches('.builder-encounter-point')
                         ? cloneEncounterPointForExport(item)
@@ -644,6 +650,7 @@
         }
 
         function renderLights(overlay) {
+            if (!lightMarkersVisible) return;
             currentLights.forEach(light => overlay.append(createLightMarker(light)));
         }
 
@@ -690,7 +697,7 @@
                 lightAreas.append(createSvgElement('circle', {
                     cx: light.x,
                     cy: light.y,
-                    r: LIGHT_RADIUS,
+                    r: Number.isFinite(light.range) ? light.range : LIGHT_RADIUS,
                     fill: '#000',
                     opacity: Math.max(
                         0,
@@ -894,7 +901,8 @@
                     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                     x: Math.round(point.x),
                     y: Math.round(point.y),
-                    brightness: 100
+                    brightness: 100,
+                    range: LIGHT_RADIUS
                 };
                 currentLights.push(light);
                 selectedId = light.id;
@@ -1814,7 +1822,10 @@
                         ...light,
                         brightness: Number.isFinite(light.brightness)
                             ? light.brightness
-                            : 100
+                            : 100,
+                        range: Number.isFinite(light.range)
+                            ? Math.max(0, Math.min(MAX_LIGHT_RADIUS, light.range))
+                            : LIGHT_RADIUS
                     }))
                     : [];
                 currentTerrain = Array.isArray(args.terrain)
@@ -1826,6 +1837,7 @@
                 darknessEnabled = args.darkness_enabled === true;
                 gridVisible = args.grid_visible !== false;
                 coordinatesVisible = args.coordinates_visible === true;
+                lightMarkersVisible = args.light_markers_visible !== false;
                 selectedId = args.selected_id || null;
             }
             selectedDecoration = args.selected_decoration || 'Auswählen';
@@ -1932,6 +1944,20 @@
                 sendState();
             });
             viewTools.append(darknessButton);
+            const lightMarkersButton = document.createElement('button');
+            lightMarkersButton.type = 'button';
+            lightMarkersButton.textContent = `Licht-Symbole: ${lightMarkersVisible ? 'an' : 'aus'}`;
+            lightMarkersButton.classList.toggle('active', lightMarkersVisible);
+            lightMarkersButton.title = 'Blendet nur die Lichtquellen-Symbole im Baumodus aus; Beleuchtung und Export bleiben unverändert.';
+            lightMarkersButton.addEventListener('click', () => {
+                lightMarkersVisible = !lightMarkersVisible;
+                builderMessage = lightMarkersVisible
+                    ? 'Lichtquellen-Symbole eingeblendet.'
+                    : 'Lichtquellen-Symbole ausgeblendet. Beleuchtung bleibt aktiv.';
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            viewTools.append(lightMarkersButton);
             const gridButton = document.createElement('button');
             gridButton.type = 'button';
             gridButton.textContent = `Raster: ${gridVisible ? 'an' : 'aus'}`;
@@ -2020,7 +2046,7 @@
             });
             selectedObjectTools.append(lightSelect);
             const lightBrightnessControl = document.createElement('label');
-            lightBrightnessControl.className = 'builder-light-brightness';
+            lightBrightnessControl.className = 'builder-light-control';
             const brightnessLabel = document.createElement('span');
             brightnessLabel.textContent = 'Helligkeit';
             const brightnessSlider = document.createElement('input');
@@ -2059,6 +2085,42 @@
                 brightnessValue
             );
             selectedObjectTools.append(lightBrightnessControl);
+            const lightRangeControl = document.createElement('label');
+            lightRangeControl.className = 'builder-light-control';
+            const rangeLabel = document.createElement('span');
+            rangeLabel.textContent = 'Reichweite';
+            const rangeSlider = document.createElement('input');
+            rangeSlider.type = 'range';
+            rangeSlider.min = '0';
+            rangeSlider.max = String(MAX_LIGHT_RADIUS);
+            rangeSlider.step = '10';
+            rangeSlider.value = String(selectedLight?.range ?? LIGHT_RADIUS);
+            rangeSlider.disabled = !selectedLight;
+            rangeSlider.setAttribute('aria-label', 'Reichweite der Lichtquelle');
+            const rangeValue = document.createElement('output');
+            rangeValue.textContent = `${rangeSlider.value}`;
+            let rangeUndoRecorded = false;
+            const rememberRangeUndo = () => {
+                if (rangeUndoRecorded) return;
+                rememberUndo();
+                rangeUndoRecorded = true;
+            };
+            rangeSlider.addEventListener('input', () => {
+                const light = currentLights.find(item => item.id === lightSelect.value);
+                if (!light) return;
+                rememberRangeUndo();
+                light.range = Number(rangeSlider.value);
+                rangeValue.textContent = `${light.range}`;
+                renderLightingLayer();
+            });
+            rangeSlider.addEventListener('change', () => {
+                if (!rangeUndoRecorded) return;
+                rangeUndoRecorded = false;
+                builderMessage = `Reichweite der Lichtquelle auf ${rangeSlider.value} eingestellt.`;
+                sendState();
+            });
+            lightRangeControl.append(rangeLabel, rangeSlider, rangeValue);
+            selectedObjectTools.append(lightRangeControl);
             const renameEncounterPointButton = document.createElement('button');
             renameEncounterPointButton.type = 'button';
             renameEncounterPointButton.textContent = 'Name übernehmen';

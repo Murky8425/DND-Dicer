@@ -29,8 +29,10 @@ auf Wänden setzen oder wieder entfernen;
 Treppenmarker können in Räumen und Gebäuden platziert und wieder entfernt werden.
 Mit Lichtquellen und dem Dunkelheitsschalter lässt sich erkunden, wie Bereiche
 einer Karte bei Dunkelheit beleuchtet werden; die Helligkeit jeder Lichtquelle
-lässt sich einzeln einstellen. Gelände-Flächen für Wasser, Lava
-oder Gruben lassen sich durch Setzen mehrerer Randpunkte zeichnen und abschließen;
+lässt sich einzeln einstellen und ihre Reichweite im Baumodus erhöhen. Die
+Lichtquellen-Symbole können im Baumodus
+unabhängig von ihrer Beleuchtung ausgeblendet werden. Gelände-Flächen für Wasser,
+Lava oder Gruben lassen sich durch Setzen mehrerer Randpunkte zeichnen und abschließen;
 sie sind visuelle Markierungen und ändern keine Spielregeln.
 Das Kartenraster lässt sich ein- und ausblenden; auf Wunsch werden Spalten und
 Zeilen zusätzlich mit Koordinaten beschriftet. Bei sehr großen Karten erscheinen
