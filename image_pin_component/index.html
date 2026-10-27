@@ -33,8 +33,9 @@
             border: 2px solid #fff; border-radius: 50%; background: #bd573d;
             color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
             font-size: 12px; font-weight: 700; line-height: 1;
-            transform: translate(-50%, -50%);
+            transform: translate(-50%, -50%); cursor: grab; touch-action: none;
         }
+        .pin-marker:active { cursor: grabbing; }
         .pin-caption {
             position: absolute; left: 15px; top: 0; display: flex;
             align-items: center; gap: 5px; transform: translateY(-50%);
@@ -75,13 +76,14 @@
     <script>
         const app = document.getElementById('app');
         let currentPins = [];
+        let currentRevision = 0;
         let selectedLabel = 'Monster';
 
         function sendPins() {
             window.parent.postMessage({
                 isStreamlitMessage: true,
                 type: 'streamlit:setComponentValue',
-                value: currentPins,
+                value: { revision: ++currentRevision, pins: currentPins },
                 dataType: 'json'
             }, '*');
         }
@@ -94,7 +96,7 @@
             }, '*');
         }
 
-        function renderPins(layer) {
+        function renderPins(layer, image, showPinDetails) {
             layer.replaceChildren();
             currentPins.forEach((pin, index) => {
                 const marker = document.createElement('div');
@@ -109,68 +111,114 @@
                 iconText.textContent = String(index + 1);
                 icon.append(iconText);
 
-                const label = document.createElement('button');
-                label.className = 'pin-label';
-                label.type = 'button';
-                label.title = 'Zum Umbenennen anklicken';
-                label.textContent = pin.label;
-                label.addEventListener('click', event => {
+                let dragStart = null;
+                icon.addEventListener('pointerdown', event => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
                     event.stopPropagation();
-                    const editor = document.createElement('input');
-                    editor.className = 'pin-label-editor';
-                    editor.type = 'text';
-                    editor.maxLength = 64;
-                    editor.value = pin.label;
-                    editor.setAttribute('aria-label', 'Pin umbenennen');
-                    let saveChanges = true;
-                    editor.addEventListener('keydown', keyEvent => {
-                        if (keyEvent.key === 'Enter') {
-                            keyEvent.preventDefault();
-                            editor.blur();
-                        } else if (keyEvent.key === 'Escape') {
-                            saveChanges = false;
-                            editor.blur();
-                        }
+                    dragStart = { x: event.clientX, y: event.clientY, moved: false };
+                    icon.setPointerCapture(event.pointerId);
+                });
+                icon.addEventListener('pointermove', event => {
+                    if (!dragStart || !icon.hasPointerCapture(event.pointerId)) return;
+                    if (!dragStart.moved) {
+                        dragStart.moved = Math.hypot(
+                            event.clientX - dragStart.x,
+                            event.clientY - dragStart.y
+                        ) > 3;
+                    }
+                    if (!dragStart.moved) return;
+                    const bounds = image.getBoundingClientRect();
+                    if (!bounds.width || !bounds.height) return;
+                    pin.x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+                    pin.y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+                    marker.style.left = `${pin.x * 100}%`;
+                    marker.style.top = `${pin.y * 100}%`;
+                });
+                const finishDrag = event => {
+                    if (!dragStart || !icon.hasPointerCapture(event.pointerId)) return;
+                    const moved = dragStart.moved;
+                    dragStart = null;
+                    icon.releasePointerCapture(event.pointerId);
+                    if (moved) {
+                        renderPins(layer, image, showPinDetails);
+                        sendPins();
+                    }
+                };
+                icon.addEventListener('pointerup', finishDrag);
+                icon.addEventListener('pointercancel', finishDrag);
+
+                marker.append(icon);
+                if (showPinDetails) {
+                    const label = document.createElement('button');
+                    label.className = 'pin-label';
+                    label.type = 'button';
+                    label.title = 'Zum Umbenennen anklicken';
+                    label.textContent = pin.label;
+                    label.addEventListener('click', event => {
+                        event.stopPropagation();
+                        const editor = document.createElement('input');
+                        editor.className = 'pin-label-editor';
+                        editor.type = 'text';
+                        editor.maxLength = 64;
+                        editor.value = pin.label;
+                        editor.setAttribute('aria-label', 'Pin umbenennen');
+                        let saveChanges = true;
+                        editor.addEventListener('keydown', keyEvent => {
+                            if (keyEvent.key === 'Enter') {
+                                keyEvent.preventDefault();
+                                editor.blur();
+                            } else if (keyEvent.key === 'Escape') {
+                                saveChanges = false;
+                                editor.blur();
+                            }
+                        });
+                        editor.addEventListener('blur', () => {
+                            const nextLabel = editor.value.trim();
+                            if (saveChanges && nextLabel) pin.label = nextLabel;
+                            renderPins(layer, image, showPinDetails);
+                            if (saveChanges && nextLabel) sendPins();
+                        }, { once: true });
+                        label.replaceWith(editor);
+                        editor.focus();
+                        editor.select();
                     });
-                    editor.addEventListener('blur', () => {
-                        const nextLabel = editor.value.trim();
-                        if (saveChanges && nextLabel) pin.label = nextLabel;
-                        renderPins(layer);
-                        if (saveChanges && nextLabel) sendPins();
-                    }, { once: true });
-                    label.replaceWith(editor);
-                    editor.focus();
-                    editor.select();
-                });
 
-                const caption = document.createElement('span');
-                caption.className = 'pin-caption';
-                caption.append(label);
+                    const caption = document.createElement('span');
+                    caption.className = 'pin-caption';
+                    caption.append(label);
 
-                const remove = document.createElement('button');
-                remove.className = 'pin-remove';
-                remove.type = 'button';
-                remove.title = 'Pin entfernen';
-                remove.setAttribute('aria-label', `${pin.label} entfernen`);
-                remove.textContent = '\u00d7';
-                caption.append(remove);
-                remove.addEventListener('click', event => {
-                    event.stopPropagation();
-                    currentPins = currentPins.filter(item => item.id !== pin.id);
-                    renderPins(layer);
-                    sendPins();
-                    updateHeight();
-                });
-
-                marker.append(icon, caption);
+                    const remove = document.createElement('button');
+                    remove.className = 'pin-remove';
+                    remove.type = 'button';
+                    remove.title = 'Pin entfernen';
+                    remove.setAttribute('aria-label', `${pin.label} entfernen`);
+                    remove.textContent = '\u00d7';
+                    caption.append(remove);
+                    remove.addEventListener('click', event => {
+                        event.stopPropagation();
+                        currentPins = currentPins.filter(item => item.id !== pin.id);
+                        renderPins(layer, image, showPinDetails);
+                        sendPins();
+                        updateHeight();
+                    });
+                    marker.append(caption);
+                }
                 layer.append(marker);
             });
             updateHeight();
         }
 
         function render(args) {
-            currentPins = Array.isArray(args.pins) ? args.pins : [];
+            const incomingRevision = Number.isInteger(args.pins_revision)
+                ? args.pins_revision
+                : 0;
+            if (incomingRevision >= currentRevision) {
+                currentPins = Array.isArray(args.pins) ? args.pins : [];
+                currentRevision = incomingRevision;
+            }
             selectedLabel = args.selected_label || 'Monster';
+            const showPinDetails = args.show_pin_details !== false;
             app.replaceChildren();
 
             const hint = document.createElement('p');
@@ -200,12 +248,12 @@
                     y,
                     label: selectedLabel
                 }];
-                renderPins(layer);
+                renderPins(layer, image, showPinDetails);
                 sendPins();
             });
 
             image.addEventListener('load', () => {
-                renderPins(layer);
+                renderPins(layer, image, showPinDetails);
                 updateHeight();
             });
             image.addEventListener('error', () => {
@@ -215,7 +263,9 @@
             imageWrap.append(image, layer);
             shell.append(imageWrap);
             app.append(shell);
-            if (image.complete && image.naturalWidth) renderPins(layer);
+            if (image.complete && image.naturalWidth) {
+                renderPins(layer, image, showPinDetails);
+            }
             updateHeight();
         }
 

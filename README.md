@@ -3,8 +3,9 @@
 Ein virtueller Würfelbecher für Dungeons & Dragons, umgesetzt mit Streamlit.
 Neben dem Würfelmodus gibt es einen Bildmodus, in dem ein hochgeladenes Bild groß
 angezeigt wird. Pins mit Beschriftungen wie Monster, Spieler oder Gefahr lassen
-sich direkt im Bild platzieren und einzeln wieder entfernen. Ein neuer Upload
-ersetzt das bisher angezeigte Bild und setzt dessen Pins zurück.
+sich direkt im Bild platzieren, verschieben und einzeln wieder entfernen. Namen
+und Löschknöpfe lassen sich bei Bedarf ausblenden. Ein neuer Upload ersetzt das
+bisher angezeigte Bild und setzt dessen Pins zurück.
 
 ## Starten
 

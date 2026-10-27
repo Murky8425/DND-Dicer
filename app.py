@@ -514,14 +514,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-mode = st.radio(
-    "Modus",
-    ["Würfel-Modus", "Bild-Modus"],
-    horizontal=True,
-    key="app_mode",
-)
-
-if mode == "Bild-Modus":
+@st.fragment
+def render_image_mode():
     st.subheader("Bild anzeigen")
     upload_column, _ = st.columns([1, 1])
     with upload_column:
@@ -536,11 +530,13 @@ if mode == "Bild-Modus":
         if image_bytes != st.session_state.get("display_image"):
             st.session_state.display_image = image_bytes
             st.session_state.image_pins = []
+            st.session_state.image_pins_revision = 0
             st.session_state.image_pin_component_key = uuid.uuid4().hex
         st.session_state.display_image_type = uploaded_image.type or "image/png"
 
     if st.session_state.get("display_image") is not None:
         st.session_state.setdefault("image_pins", [])
+        st.session_state.setdefault("image_pins_revision", 0)
         st.session_state.setdefault("image_pin_component_key", uuid.uuid4().hex)
         with st.container(key="image_mode_preview"):
             selected_pin_label = st.selectbox(
@@ -548,18 +544,42 @@ if mode == "Bild-Modus":
                 ["Monster", "Spieler", "Mimik", "Schatz", "Gefahr", "Ziel", "Sonstiges"],
                 key="image_pin_label",
             )
+            show_pin_details = st.toggle(
+                "Pin Namen Ausschalten.",
+                value=True,
+                key="image_pin_details_visible",
+            )
             pins = image_pin_board(
                 image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
                 image_type=st.session_state.get("display_image_type", "image/png"),
                 pins=st.session_state.image_pins,
+                pins_revision=st.session_state.image_pins_revision,
                 selected_label=selected_pin_label,
+                show_pin_details=show_pin_details,
                 key=f"image_pin_board_{st.session_state.image_pin_component_key}",
-                default=st.session_state.image_pins,
+                default={
+                    "revision": st.session_state.image_pins_revision,
+                    "pins": st.session_state.image_pins,
+                },
             )
-            if pins is not None:
-                st.session_state.image_pins = pins
+            if isinstance(pins, dict) and isinstance(pins.get("pins"), list):
+                revision = pins.get("revision")
+                if isinstance(revision, int) and revision >= st.session_state.image_pins_revision:
+                    st.session_state.image_pins = pins["pins"]
+                    st.session_state.image_pins_revision = revision
     else:
         st.info("Lade ein Bild hoch, um es hier groß anzuzeigen.")
+
+
+mode = st.radio(
+    "Modus",
+    ["Würfel-Modus", "Bild-Modus"],
+    horizontal=True,
+    key="app_mode",
+)
+
+if mode == "Bild-Modus":
+    render_image_mode()
     st.stop()
 
 # Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
