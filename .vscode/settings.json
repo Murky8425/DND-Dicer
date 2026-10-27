@@ -1,0 +1,12 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^git status --short && printf '\\\\n-- Root --\\\\n' && ls -la$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python - <<'PY'\nfrom streamlit\\.testing\\.v1 import AppTest\nimport xml\\.etree\\.ElementTree as ET\n\napp = AppTest\\.from_file\\('app\\.py'\\)\\.run\\(timeout=30\\)\napp\\.radio\\[0\\]\\.set_value\\('Map generierer'\\)\\.run\\(timeout=30\\)\napp\\.button\\[0\\]\\.click\\(\\)\\.run\\(timeout=30\\)\napp\\.button\\[-1\\]\\.click\\(\\)\\.run\\(timeout=30\\)\nimage = app\\.session_state\\['display_image'\\]\nET\\.fromstring\\(image\\)\nprint\\('selected mode:', app\\.radio\\[0\\]\\.value\\)\nprint\\('image type:', app\\.session_state\\['display_image_type'\\]\\)\nprint\\('SVG bytes:', len\\(image\\)\\)\nprint\\('pin reset:', app\\.session_state\\['image_pins'\\] == \\[\\]\\)\nprint\\('upload widget key changed:', app\\.session_state\\['image_upload_key'\\] != 'display_image_upload'\\)\nprint\\('exceptions:', \\[str\\(error\\) for error in app\\.exception\\]\\)\nPY$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

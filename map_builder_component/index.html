@@ -1,0 +1,2289 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 8px 0 12px; color: #193c32;
+            font: 14px/1.4 'DM Sans', sans-serif;
+        }
+        #app { width: 100%; }
+        .builder-hint {
+            margin: 0 0 12px; padding: 9px 12px; border-left: 4px solid #bd573d;
+            border-radius: 4px; background: #f5f3ec; color: #52635b;
+        }
+        .builder-board {
+            width: 100%; overflow: hidden; border: 1px solid rgba(25, 60, 50, 0.2);
+            border-radius: 6px; background: #f3f2eb;
+        }
+        .builder-board svg { display: block; width: 100%; height: auto; }
+        .dungeon-room { cursor: grab; }
+        .dungeon-room:active { cursor: grabbing; }
+        .builder-handle { cursor: nwse-resize; }
+        .builder-item { cursor: grab; }
+        .builder-item:active { cursor: grabbing; }
+        .builder-size-handle { cursor: nwse-resize; }
+        .builder-toolbar {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            align-items: start; gap: 10px; width: 100%; margin-bottom: 14px;
+        }
+        .builder-tool-group {
+            min-width: 0; padding: 10px; border: 1px solid #d9ded8;
+            border-radius: 8px; background: #fff;
+            box-shadow: 0 1px 3px rgba(25, 60, 50, 0.06);
+        }
+        .builder-tool-group h3 {
+            margin: 0 0 8px; color: #193c32; font-size: 12px;
+            font-weight: 800; letter-spacing: 0.045em; text-transform: uppercase;
+        }
+        .builder-tool-controls {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+        }
+        .builder-toolbar button {
+            flex: 1 1 auto; max-width: 100%; min-height: 36px; white-space: normal;
+            overflow-wrap: anywhere;
+            padding: 7px 10px; border: 1px solid #c5d0ca; border-radius: 6px;
+            background: #fff; color: #193c32; font: inherit; font-weight: 700;
+            cursor: pointer; transition: background 120ms ease, border-color 120ms ease;
+        }
+        .builder-toolbar button:hover:not(:disabled) {
+            border-color: #193c32; background: #f1f5f2;
+        }
+        .builder-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .builder-toolbar button.active {
+            border-color: #193c32; background: #193c32; color: #fff;
+        }
+        .builder-tool-group input {
+            flex: 1 1 120px; min-width: 0; min-height: 36px;
+            padding: 7px 9px; border: 1px solid #c5d0ca; border-radius: 6px;
+            color: #193c32; font: inherit;
+        }
+        .builder-tool-group input:focus {
+            outline: 2px solid rgba(189, 87, 61, 0.25); border-color: #bd573d;
+        }
+        .builder-light-brightness {
+            flex: 1 1 100%; display: grid; grid-template-columns: auto minmax(70px, 1fr) 42px;
+            align-items: center; gap: 8px; color: #52635b; font-size: 12px;
+        }
+        .builder-light-brightness input[type="range"] {
+            width: 100%; min-height: auto; padding: 0; accent-color: #bd573d;
+        }
+        .builder-light-brightness output {
+            color: #193c32; font-weight: 800; text-align: right;
+        }
+        @media (max-width: 520px) {
+            .builder-toolbar { grid-template-columns: 1fr; gap: 8px; }
+            .builder-tool-group { padding: 8px; }
+            .builder-toolbar button { padding: 6px 8px; font-size: 13px; }
+        }
+    </style>
+</head>
+<body>
+    <main id="app"></main>
+    <script>
+        const app = document.getElementById('app');
+        const namespace = 'http://www.w3.org/2000/svg';
+        const MAX_UNDO_STEPS = 5;
+        const LIGHT_RADIUS = 180;
+        let currentRooms = [];
+        let currentEncounterPoints = [];
+        let currentDecorations = [];
+        let currentCustomRooms = [];
+        let currentStairs = [];
+        let currentLights = [];
+        let currentTerrain = [];
+        let darknessEnabled = false;
+        let gridVisible = true;
+        let coordinatesVisible = false;
+        let undoHistory = [];
+        let redoHistory = [];
+        let selectedId = null;
+        let selectedDecoration = 'Kiste';
+        let currentRevision = 0;
+        let svgRoot = null;
+        let activeTool = 'select';
+        let draftCorners = [];
+        let draftTerrainPoints = [];
+        let selectedTerrainType = 'Wasser';
+        let builderMessage = '';
+
+        function createSvgElement(tag, attributes = {}) {
+            const element = document.createElementNS(namespace, tag);
+            Object.entries(attributes).forEach(([name, value]) => {
+                element.setAttribute(name, value);
+            });
+            return element;
+        }
+
+        function rememberUndo() {
+            undoHistory.push({
+                rooms: JSON.parse(JSON.stringify(currentRooms)),
+                encounterPoints: JSON.parse(JSON.stringify(currentEncounterPoints)),
+                decorations: JSON.parse(JSON.stringify(currentDecorations)),
+                customRooms: JSON.parse(JSON.stringify(currentCustomRooms)),
+                stairs: JSON.parse(JSON.stringify(currentStairs)),
+                lights: JSON.parse(JSON.stringify(currentLights)),
+                terrain: JSON.parse(JSON.stringify(currentTerrain)),
+                darknessEnabled,
+                selectedId
+            });
+            if (undoHistory.length > MAX_UNDO_STEPS) undoHistory.shift();
+            redoHistory = [];
+        }
+
+        function captureState() {
+            return {
+                rooms: JSON.parse(JSON.stringify(currentRooms)),
+                encounterPoints: JSON.parse(JSON.stringify(currentEncounterPoints)),
+                decorations: JSON.parse(JSON.stringify(currentDecorations)),
+                customRooms: JSON.parse(JSON.stringify(currentCustomRooms)),
+                stairs: JSON.parse(JSON.stringify(currentStairs)),
+                lights: JSON.parse(JSON.stringify(currentLights)),
+                terrain: JSON.parse(JSON.stringify(currentTerrain)),
+                darknessEnabled,
+                selectedId
+            };
+        }
+
+        function restoreState(state, message) {
+            currentRooms = state.rooms;
+            currentEncounterPoints = state.encounterPoints || [];
+            currentDecorations = state.decorations;
+            currentCustomRooms = state.customRooms;
+            currentStairs = state.stairs;
+            currentLights = state.lights;
+            currentTerrain = state.terrain;
+            darknessEnabled = state.darknessEnabled;
+            selectedId = state.selectedId;
+            draftCorners = [];
+            draftTerrainPoints = [];
+            activeTool = 'select';
+            builderMessage = message;
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
+        function undoLastStep() {
+            const previous = undoHistory.pop();
+            if (!previous || !svgRoot) return;
+            redoHistory.push(captureState());
+            restoreState(previous, 'Letzten Schritt rückgängig gemacht.');
+        }
+
+        function redoLastStep() {
+            const next = redoHistory.pop();
+            if (!next || !svgRoot) return;
+            undoHistory.push(captureState());
+            if (undoHistory.length > MAX_UNDO_STEPS) undoHistory.shift();
+            restoreState(next, 'Letzten Schritt wiederhergestellt.');
+        }
+
+        function cloneEncounterPointForExport(point) {
+            const copy = point.cloneNode(true);
+            const marker = copy.querySelector('circle');
+            if (marker) {
+                marker.setAttribute('stroke', '#fff');
+                marker.setAttribute('stroke-width', '4');
+            }
+            return copy;
+        }
+
+        function sendState() {
+            if (!svgRoot) return;
+            const exportRoot = svgRoot.cloneNode(true);
+            const exportedStairs = [...svgRoot.querySelectorAll('.builder-stair-marker')]
+                .map(marker => marker.cloneNode(true));
+            const exportedLights = [...svgRoot.querySelectorAll('.builder-light-marker')]
+                .map(marker => marker.cloneNode(true));
+            const exportedEncounterPoints = [
+                ...svgRoot.querySelectorAll('.builder-encounter-point')
+            ].map(cloneEncounterPointForExport);
+            exportRoot.querySelector('.builder-overlay')?.remove();
+            exportRoot.append(
+                ...exportedStairs,
+                ...exportedLights,
+                ...exportedEncounterPoints
+            );
+            exportRoot.querySelectorAll('.dungeon-room').forEach(room => {
+                room.setAttribute('stroke', '#353832');
+                room.setAttribute('stroke-width', '7');
+            });
+            currentDecorations.forEach(decoration => {
+                const item = svgRoot.querySelector(
+                    `[data-decoration-id="${decoration.id}"]`
+                );
+                if (!item) return;
+                const exportedItem = item.cloneNode(true);
+                exportedItem.querySelector('.builder-selection')?.remove();
+                exportedItem.querySelector('.builder-size-handle')?.remove();
+                exportRoot.append(exportedItem);
+            });
+            currentCustomRooms.forEach(room => {
+                const element = svgRoot.querySelector(
+                    `[data-custom-room-id="${room.id}"]`
+                );
+                if (!element) return;
+                const exportedRoom = element.cloneNode(true);
+                exportedRoom.querySelector('.builder-selection')?.remove();
+                exportRoot.append(exportedRoom);
+            });
+            const serialized = new XMLSerializer().serializeToString(exportRoot);
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: 'streamlit:setComponentValue',
+                value: {
+                    revision: ++currentRevision,
+                    svg: serialized,
+                    rooms: currentRooms,
+                    encounter_points: currentEncounterPoints,
+                    decorations: currentDecorations,
+                    custom_rooms: currentCustomRooms,
+                    stairs: currentStairs,
+                    lights: currentLights,
+                    terrain: currentTerrain,
+                    darkness_enabled: darknessEnabled,
+                    grid_visible: gridVisible,
+                    coordinates_visible: coordinatesVisible,
+                    selected_id: selectedId
+                },
+                dataType: 'json'
+            }, '*');
+        }
+
+        function updateHeight() {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: 'streamlit:setFrameHeight',
+                height: document.documentElement.scrollHeight
+            }, '*');
+        }
+
+        function mapDimensions() {
+            const viewBox = svgRoot?.viewBox?.baseVal;
+            return {
+                width: viewBox?.width || 960,
+                height: viewBox?.height || 600
+            };
+        }
+
+        function coordinateLabel(index) {
+            let value = index + 1;
+            let label = '';
+            while (value > 0) {
+                value -= 1;
+                label = String.fromCharCode(65 + value % 26) + label;
+                value = Math.floor(value / 26);
+            }
+            return label;
+        }
+
+        function updateGridVisibility() {
+            svgRoot.querySelectorAll('.map-grid').forEach(grid => {
+                grid.setAttribute('display', gridVisible ? 'inline' : 'none');
+            });
+        }
+
+        function createCoordinateLayer(width, height) {
+            const cellSize = 40;
+            const columns = Math.floor(width / cellSize);
+            const rows = Math.floor(height / cellSize);
+            const columnStep = columns > 30 ? 5 : 1;
+            const rowStep = rows > 30 ? 5 : 1;
+            const layer = createSvgElement('g', {
+                class: 'builder-coordinate-layer',
+                'pointer-events': 'none',
+                'font-family': 'sans-serif',
+                'font-size': '12',
+                'font-weight': '700',
+                'text-anchor': 'middle'
+            });
+
+            for (let column = 0; column < columns; column += columnStep) {
+                const text = coordinateLabel(column);
+                const x = (column + 0.5) * cellSize;
+                layer.append(createSvgElement('rect', {
+                    x: x - 11,
+                    y: '2',
+                    width: '22',
+                    height: '16',
+                    rx: '3',
+                    fill: '#17211d',
+                    opacity: '0.72'
+                }));
+                layer.append(createSvgElement('text', {
+                    x,
+                    y: '14',
+                    fill: '#fff'
+                }));
+                layer.lastChild.textContent = text;
+            }
+            for (let row = 0; row < rows; row += rowStep) {
+                const y = (row + 0.5) * cellSize;
+                layer.append(createSvgElement('rect', {
+                    x: '2',
+                    y: y - 9,
+                    width: '20',
+                    height: '18',
+                    rx: '3',
+                    fill: '#17211d',
+                    opacity: '0.72'
+                }));
+                layer.append(createSvgElement('text', {
+                    x: '12',
+                    y: y + 4,
+                    fill: '#fff'
+                }));
+                layer.lastChild.textContent = String(row + 1);
+            }
+            return layer;
+        }
+
+        function renderCoordinates() {
+            svgRoot.querySelector('.builder-coordinate-layer')?.remove();
+            if (!coordinatesVisible) return;
+            const { width, height } = mapDimensions();
+            const layer = createCoordinateLayer(width, height);
+            svgRoot.insertBefore(layer, svgRoot.querySelector('.builder-overlay'));
+        }
+
+        function createExportSvg() {
+            const exportRoot = svgRoot.cloneNode(true);
+            exportRoot.querySelector('.builder-overlay')?.remove();
+            exportRoot.querySelector('.builder-coordinate-layer')?.remove();
+            exportRoot.querySelectorAll('.map-grid').forEach(grid => {
+                grid.removeAttribute('display');
+            });
+            exportRoot.querySelectorAll('.encounter-point').forEach(point => point.remove());
+            exportRoot.querySelectorAll('.dungeon-room').forEach(room => {
+                room.setAttribute('stroke', '#353832');
+                room.setAttribute('stroke-width', '7');
+            });
+
+            const { width, height } = mapDimensions();
+            exportRoot.append(createCoordinateLayer(width, height));
+            [
+                '.builder-stair-marker',
+                '.builder-light-marker',
+                '.builder-encounter-point',
+                '[data-custom-room-id]',
+                '.builder-item'
+            ].forEach(selector => {
+                svgRoot.querySelectorAll(selector).forEach(item => {
+                    const copy = item.matches('.builder-encounter-point')
+                        ? cloneEncounterPointForExport(item)
+                        : item.cloneNode(true);
+                    copy.querySelector('.builder-selection')?.remove();
+                    copy.querySelector('.builder-size-handle')?.remove();
+                    exportRoot.append(copy);
+                });
+            });
+            return new XMLSerializer().serializeToString(exportRoot);
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function pdfBlobFromJpeg(jpegBytes, imageWidth, imageHeight) {
+            const landscape = imageWidth / imageHeight > 1;
+            const pageWidth = landscape ? 842 : 595;
+            const pageHeight = landscape ? 595 : 842;
+            const margin = 24;
+            const scale = Math.min(
+                (pageWidth - margin * 2) / imageWidth,
+                (pageHeight - margin * 2) / imageHeight
+            );
+            const drawWidth = imageWidth * scale;
+            const drawHeight = imageHeight * scale;
+            const offsetX = (pageWidth - drawWidth) / 2;
+            const offsetY = (pageHeight - drawHeight) / 2;
+            const content = new TextEncoder().encode(
+                `q\n${drawWidth} 0 0 ${drawHeight} ${offsetX} ${offsetY} cm\n/Im0 Do\nQ`
+            );
+            const objects = [
+                new TextEncoder().encode('<< /Type /Catalog /Pages 2 0 R >>'),
+                new TextEncoder().encode('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+                new TextEncoder().encode(
+                    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] `
+                    + '/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>'
+                ),
+                [
+                    new TextEncoder().encode(
+                        `<< /Type /XObject /Subtype /Image /Width ${imageWidth} `
+                        + `/Height ${imageHeight} /ColorSpace /DeviceRGB `
+                        + `/BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
+                    ),
+                    jpegBytes,
+                    new TextEncoder().encode('\nendstream')
+                ],
+                [
+                    new TextEncoder().encode(
+                        `<< /Length ${content.length} >>\nstream\n`
+                    ),
+                    content,
+                    new TextEncoder().encode('\nendstream')
+                ]
+            ];
+            const header = new TextEncoder().encode('%PDF-1.4\n%âãÏÓ\n');
+            const chunks = [header];
+            const offsets = [0];
+            let byteLength = header.length;
+            objects.forEach((object, index) => {
+                offsets.push(byteLength);
+                const parts = Array.isArray(object) ? object : [object];
+                const opening = new TextEncoder().encode(`${index + 1} 0 obj\n`);
+                const closing = new TextEncoder().encode('\nendobj\n');
+                chunks.push(opening, ...parts, closing);
+                byteLength += opening.length + parts.reduce((sum, part) => sum + part.length, 0)
+                    + closing.length;
+            });
+            const xrefOffset = byteLength;
+            const xref = [
+                `xref\n0 ${offsets.length}\n`,
+                '0000000000 65535 f \n',
+                ...offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`),
+                `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\n`,
+                `startxref\n${xrefOffset}\n%%EOF`
+            ].join('');
+            chunks.push(new TextEncoder().encode(xref));
+            return new Blob(chunks, { type: 'application/pdf' });
+        }
+
+        async function exportMap(format) {
+            try {
+                const { width, height } = mapDimensions();
+                const image = new Image();
+                const svgBlob = new Blob([createExportSvg()], {
+                    type: 'image/svg+xml;charset=utf-8'
+                });
+                const svgUrl = URL.createObjectURL(svgBlob);
+                try {
+                    image.src = svgUrl;
+                    await image.decode();
+                } finally {
+                    URL.revokeObjectURL(svgUrl);
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Canvas ist nicht verfügbar.');
+                context.drawImage(image, 0, 0, width, height);
+                const title = (svgRoot.getAttribute('aria-label') || 'DND-Karte')
+                    .replace(/[^a-z0-9-_]+/gi, '-')
+                    .replace(/^-|-$/g, '') || 'DND-Karte';
+
+                if (format === 'png') {
+                    const png = await new Promise((resolve, reject) => {
+                        canvas.toBlob(blob => {
+                            if (blob) resolve(blob);
+                            else reject(new Error('PNG konnte nicht erstellt werden.'));
+                        }, 'image/png');
+                    });
+                    downloadBlob(png, `${title}.png`);
+                } else {
+                    const jpeg = await new Promise((resolve, reject) => {
+                        canvas.toBlob(blob => {
+                            if (blob) resolve(blob);
+                            else reject(new Error('PDF-Bild konnte nicht erstellt werden.'));
+                        }, 'image/jpeg', 0.96);
+                    });
+                    const bytes = new Uint8Array(await jpeg.arrayBuffer());
+                    downloadBlob(pdfBlobFromJpeg(bytes, width, height), `${title}.pdf`);
+                }
+                builderMessage = `${format.toUpperCase()}-Export heruntergeladen.`;
+                render(svgRoot.__args, true);
+            } catch (error) {
+                builderMessage = `Export fehlgeschlagen: ${error.message}`;
+                render(svgRoot.__args, true);
+            }
+        }
+
+        function clampDecorationPosition(point) {
+            const { width, height } = mapDimensions();
+            const marginX = Math.min(20, width / 2);
+            const marginY = Math.min(20, height / 2);
+            return {
+                x: Math.max(marginX, Math.min(width - marginX, point.x)),
+                y: Math.max(marginY, Math.min(height - marginY, point.y))
+            };
+        }
+
+        function pointFromEvent(event) {
+            const point = svgRoot.createSVGPoint();
+            point.x = event.clientX;
+            point.y = event.clientY;
+            return point.matrixTransform(svgRoot.getScreenCTM().inverse());
+        }
+
+        function isBuilding(decoration) {
+            return ['Haus', 'Turm', 'Hütte'].includes(decoration?.type);
+        }
+
+        function canPlaceDecoration(type) {
+            return type !== 'Auswählen' && !['Haus', 'Turm', 'Hütte'].includes(type);
+        }
+
+        function isInsideBuilding(decoration, point) {
+            const rotation = (decoration.rotation || 0) * Math.PI / 180;
+            const scale = Number.isFinite(decoration.scale) ? decoration.scale : 1;
+            const dx = (point.x - decoration.x) / scale;
+            const dy = (point.y - decoration.y) / scale;
+            const localX = dx * Math.cos(rotation) + dy * Math.sin(rotation);
+            const localY = -dx * Math.sin(rotation) + dy * Math.cos(rotation);
+            if (decoration.type === 'Turm') {
+                return Math.abs(localX) <= 20 && Math.abs(localY) <= 20;
+            }
+            const halfWidth = decoration.type === 'Hütte' ? 27 : 30;
+            const top = decoration.type === 'Hütte' ? -5 : -12;
+            return Math.abs(localX) <= halfWidth && localY >= top && localY <= 31;
+        }
+
+        function isInsideRoom(room, point) {
+            let inside = false;
+            for (
+                let index = 0, previous = room.corners.length - 1;
+                index < room.corners.length;
+                previous = index, index += 1
+            ) {
+                const current = room.corners[index];
+                const prior = room.corners[previous];
+                const intersects = (
+                    current.y > point.y
+                ) !== (
+                    prior.y > point.y
+                ) && point.x < (
+                    (prior.x - current.x) * (point.y - current.y)
+                    / (prior.y - current.y)
+                    + current.x
+                );
+                if (intersects) inside = !inside;
+            }
+            return inside;
+        }
+
+        function placeDecorationAt(point) {
+            if (!canPlaceDecoration(selectedDecoration)) return;
+            const position = clampDecorationPosition(point);
+            rememberUndo();
+            currentDecorations.push({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                type: selectedDecoration,
+                ...position,
+                rotation: 0,
+                scale: 1
+            });
+            selectedId = currentDecorations[currentDecorations.length - 1].id;
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
+        function createStairMarker(stair) {
+            const group = createSvgElement('g', {
+                class: 'builder-stair-marker',
+                'data-stair-id': stair.id,
+                transform: `translate(${stair.x} ${stair.y})`,
+                'aria-label': 'Treppe'
+            });
+            group.append(createSvgElement('rect', {
+                x: '-22',
+                y: '-22',
+                width: '44',
+                height: '44',
+                rx: '4',
+                fill: '#e8d8ae',
+                stroke: '#493b2c',
+                'stroke-width': '4'
+            }));
+            group.append(createSvgElement('path', {
+                d: 'M -13 14 V 7 H -6 V 0 H 1 V -7 H 8 V -14 H 14',
+                fill: 'none',
+                stroke: '#493b2c',
+                'stroke-width': '5',
+                'stroke-linecap': 'square',
+                'stroke-linejoin': 'miter'
+            }));
+            group.append(createSvgElement('path', {
+                d: 'M -13 14 H 14 V -14',
+                fill: 'none',
+                stroke: '#a47a4e',
+                'stroke-width': '2'
+            }));
+            group.setAttribute('pointer-events', 'none');
+            return group;
+        }
+
+        function createLightMarker(light) {
+            const group = createSvgElement('g', {
+                class: 'builder-light-marker',
+                'data-light-id': light.id,
+                transform: `translate(${light.x} ${light.y})`,
+                'aria-label': 'Lichtquelle'
+            });
+            group.append(createSvgElement('circle', {
+                r: '15',
+                fill: '#f6c75e',
+                stroke: '#573f2b',
+                'stroke-width': '3'
+            }));
+            group.append(createSvgElement('path', {
+                d: 'M 0 9 C -11 1 -2 -5 0 -12 C 2 -5 11 1 0 9 Z',
+                fill: '#fff2bd',
+                stroke: '#b94f2d',
+                'stroke-width': '2'
+            }));
+            group.setAttribute('pointer-events', 'none');
+            return group;
+        }
+
+        function renderLights(overlay) {
+            currentLights.forEach(light => overlay.append(createLightMarker(light)));
+        }
+
+        function renderLightingLayer() {
+            svgRoot.querySelector('.builder-lighting-layer')?.remove();
+            if (!darknessEnabled) return;
+
+            const { width, height } = mapDimensions();
+            const layer = createSvgElement('g', {
+                class: 'builder-lighting-layer',
+                'pointer-events': 'none'
+            });
+            const definitions = createSvgElement('defs');
+            const blur = createSvgElement('filter', {
+                id: 'builder-light-blur',
+                x: '-20%',
+                y: '-20%',
+                width: '140%',
+                height: '140%'
+            });
+            blur.append(createSvgElement('feGaussianBlur', {
+                stdDeviation: '12'
+            }));
+            definitions.append(blur);
+            const mask = createSvgElement('mask', {
+                id: 'builder-light-mask',
+                maskUnits: 'userSpaceOnUse',
+                x: '0',
+                y: '0',
+                width,
+                height
+            });
+            mask.append(createSvgElement('rect', {
+                x: '0',
+                y: '0',
+                width,
+                height,
+                fill: '#fff'
+            }));
+            const lightAreas = createSvgElement('g', {
+                filter: 'url(#builder-light-blur)'
+            });
+            currentLights.forEach(light => {
+                lightAreas.append(createSvgElement('circle', {
+                    cx: light.x,
+                    cy: light.y,
+                    r: LIGHT_RADIUS,
+                    fill: '#000',
+                    opacity: Math.max(
+                        0,
+                        Math.min(1, (Number(light.brightness) || 0) / 100)
+                    )
+                }));
+            });
+            mask.append(lightAreas);
+            definitions.append(mask);
+            layer.append(definitions, createSvgElement('rect', {
+                x: '0',
+                y: '0',
+                width,
+                height,
+                fill: '#111827',
+                opacity: '0.78',
+                mask: 'url(#builder-light-mask)'
+            }));
+            svgRoot.append(layer);
+        }
+
+        function renderTerrainLayer() {
+            svgRoot.querySelector('.builder-terrain-layer')?.remove();
+            if (!currentTerrain.length) return;
+
+            const layer = createSvgElement('g', {
+                class: 'builder-terrain-layer',
+                'pointer-events': 'none'
+            });
+            const definitions = createSvgElement('defs');
+            const patternSettings = {
+                Wasser: { background: '#287ca8', stroke: '#b5e7ec' },
+                Lava: { background: '#c74420', stroke: '#ffd166' },
+                Grube: { background: '#282630', stroke: '#8b8791' }
+            };
+            Object.entries(patternSettings).forEach(([type, colors]) => {
+                const pattern = createSvgElement('pattern', {
+                    id: `terrain-pattern-${type}`,
+                    width: '48',
+                    height: '48',
+                    patternUnits: 'userSpaceOnUse'
+                });
+                pattern.append(createSvgElement('rect', {
+                    width: '48',
+                    height: '48',
+                    fill: colors.background,
+                    opacity: type === 'Grube' ? '0.9' : '0.78'
+                }));
+                const marks = type === 'Wasser'
+                    ? [
+                        { tag: 'path', attributes: { d: 'M -8 12 Q 2 4 12 12 T 32 12 T 52 12 M -8 36 Q 2 28 12 36 T 32 36 T 52 36', fill: 'none' } }
+                    ]
+                    : type === 'Lava'
+                        ? [
+                            { tag: 'path', attributes: { d: 'M 5 5 L 20 12 L 15 22 L 30 30 L 25 43 M 40 0 L 35 12 L 45 18', fill: 'none' } },
+                            { tag: 'circle', attributes: { cx: '8', cy: '32', r: '3', fill: colors.stroke } },
+                            { tag: 'circle', attributes: { cx: '38', cy: '38', r: '2', fill: colors.stroke } }
+                        ]
+                        : [
+                            { tag: 'path', attributes: { d: 'M 4 6 L 16 16 L 10 26 L 22 38 M 40 8 L 30 18 L 38 25 L 28 42', fill: 'none' } }
+                        ];
+                marks.forEach(({ tag, attributes }) => {
+                    pattern.append(createSvgElement(tag, {
+                        ...attributes,
+                        stroke: colors.stroke,
+                        'stroke-width': type === 'Lava' ? '3' : '2',
+                        opacity: type === 'Lava' ? '0.9' : '0.72',
+                        'stroke-linecap': 'round',
+                        'stroke-linejoin': 'round'
+                    }));
+                });
+                definitions.append(pattern);
+            });
+            layer.append(definitions);
+            currentTerrain.forEach(area => {
+                const points = area.points.map(point => `${point.x},${point.y}`).join(' ');
+                const color = patternSettings[area.type]?.stroke || '#fff';
+                layer.append(createSvgElement('polygon', {
+                    class: 'builder-terrain-area',
+                    'data-terrain-id': area.id,
+                    points,
+                    fill: `url(#terrain-pattern-${area.type})`,
+                    stroke: color,
+                    'stroke-width': '4',
+                    'stroke-linejoin': 'round'
+                }));
+            });
+            svgRoot.append(layer);
+        }
+
+        function renderTerrainDraft(overlay) {
+            if (!draftTerrainPoints.length) return;
+            const pointList = draftTerrainPoints
+                .map(point => `${point.x},${point.y}`)
+                .join(' ');
+            if (draftTerrainPoints.length >= 3) {
+                overlay.append(createSvgElement('polygon', {
+                    points: pointList,
+                    fill: selectedTerrainType === 'Wasser'
+                        ? '#287ca8'
+                        : selectedTerrainType === 'Lava'
+                            ? '#c74420'
+                            : '#282630',
+                    'fill-opacity': '0.42',
+                    stroke: '#fff',
+                    'stroke-width': '3',
+                    'stroke-dasharray': '9 6',
+                    'pointer-events': 'none'
+                }));
+            } else if (draftTerrainPoints.length > 1) {
+                overlay.append(createSvgElement('polyline', {
+                    points: pointList,
+                    fill: 'none',
+                    stroke: '#fff',
+                    'stroke-width': '3',
+                    'stroke-dasharray': '9 6',
+                    'pointer-events': 'none'
+                }));
+            }
+            draftTerrainPoints.forEach(point => {
+                overlay.append(createSvgElement('circle', {
+                    cx: point.x,
+                    cy: point.y,
+                    r: '7',
+                    fill: '#bd573d',
+                    stroke: '#fff',
+                    'stroke-width': '2',
+                    'pointer-events': 'none'
+                }));
+            });
+        }
+
+        function terrainPolygonIsValid(points) {
+            const area = Math.abs(points.reduce((sum, point, index) => {
+                const next = points[(index + 1) % points.length];
+                return sum + point.x * next.y - next.x * point.y;
+            }, 0)) / 2;
+            if (area < 100) return false;
+
+            const orientation = (a, b, c) =>
+                (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            for (let first = 0; first < points.length; first += 1) {
+                const firstNext = (first + 1) % points.length;
+                for (let second = first + 1; second < points.length; second += 1) {
+                    const secondNext = (second + 1) % points.length;
+                    if (
+                        first === second
+                        || firstNext === second
+                        || secondNext === first
+                    ) continue;
+                    const a = orientation(points[first], points[firstNext], points[second]);
+                    const b = orientation(points[first], points[firstNext], points[secondNext]);
+                    const c = orientation(points[second], points[secondNext], points[first]);
+                    const d = orientation(points[second], points[secondNext], points[firstNext]);
+                    if (a * b < 0 && c * d < 0) return false;
+                }
+            }
+            return true;
+        }
+
+        function addTerrainPoint(point) {
+            const roundedPoint = { x: Math.round(point.x), y: Math.round(point.y) };
+            if (draftTerrainPoints.some(existing => (
+                Math.hypot(existing.x - roundedPoint.x, existing.y - roundedPoint.y) < 12
+            ))) return;
+            draftTerrainPoints.push(roundedPoint);
+            builderMessage = `${selectedTerrainType}: Randpunkte setzen (${draftTerrainPoints.length}).`;
+            render(svgRoot.__args, true);
+        }
+
+        function finishTerrainArea() {
+            if (!terrainPolygonIsValid(draftTerrainPoints)) {
+                builderMessage = 'Die Fläche braucht mindestens drei Eckpunkte und muss eine gültige Form haben.';
+                render(svgRoot.__args, true);
+                return;
+            }
+            rememberUndo();
+            currentTerrain.push({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                type: selectedTerrainType,
+                points: draftTerrainPoints.map(point => ({ ...point }))
+            });
+            draftTerrainPoints = [];
+            activeTool = 'select';
+            builderMessage = `${selectedTerrainType}-Fläche erstellt.`;
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
+        function toggleLightAt(point) {
+            const existingIndex = currentLights.findIndex(
+                light => Math.hypot(light.x - point.x, light.y - point.y) < 30
+            );
+            rememberUndo();
+            if (existingIndex >= 0) {
+                const [removedLight] = currentLights.splice(existingIndex, 1);
+                if (selectedId === removedLight.id) selectedId = null;
+                builderMessage = 'Lichtquelle entfernt.';
+            } else {
+                const light = {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    x: Math.round(point.x),
+                    y: Math.round(point.y),
+                    brightness: 100
+                };
+                currentLights.push(light);
+                selectedId = light.id;
+                builderMessage = 'Lichtquelle hinzugefügt.';
+            }
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
+        function renderStairs(overlay) {
+            currentStairs.forEach(stair => overlay.append(createStairMarker(stair)));
+        }
+
+        function toggleStairAt(point) {
+            const insideRoom = currentCustomRooms.some(room => isInsideRoom(room, point))
+                || currentRooms.some(room => (
+                    point.x >= room.x
+                    && point.x <= room.x + room.width
+                    && point.y >= room.y
+                    && point.y <= room.y + room.height
+                ));
+            const insideBuilding = currentDecorations.some(
+                decoration => isBuilding(decoration) && isInsideBuilding(decoration, point)
+            );
+            if (!insideRoom && !insideBuilding) {
+                builderMessage = 'Treppen können nur innerhalb eines Raums oder Gebäudes gesetzt werden.';
+                render(svgRoot.__args, true);
+                return;
+            }
+
+            const existingIndex = currentStairs.findIndex(
+                stair => Math.hypot(stair.x - point.x, stair.y - point.y) < 30
+            );
+            rememberUndo();
+            if (existingIndex >= 0) {
+                currentStairs.splice(existingIndex, 1);
+                builderMessage = 'Treppe entfernt.';
+            } else {
+                currentStairs.push({
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    x: Math.round(point.x),
+                    y: Math.round(point.y)
+                });
+                builderMessage = 'Treppe im Raum platziert.';
+            }
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
+        function updateRoomElement(room) {
+            const element = svgRoot.querySelector(`[data-room-id="${room.id}"]`);
+            if (!element) return;
+            if (Array.isArray(room.shape_points) && element.tagName.toLowerCase() === 'path') {
+                element.setAttribute(
+                    'transform',
+                    `translate(${room.x} ${room.y}) scale(${room.width / 1000} ${room.height / 1000})`
+                );
+                return;
+            }
+            element.setAttribute('x', room.x);
+            element.setAttribute('y', room.y);
+            element.setAttribute('width', room.width);
+            element.setAttribute('height', room.height);
+        }
+
+        function updateCorridors() {
+            const corridors = svgRoot.querySelector('.dungeon-corridors');
+            if (!corridors || currentRooms.length < 2) return;
+            const mainCorridors = corridors.querySelectorAll('.dungeon-corridor-main');
+            if (mainCorridors.length) {
+                mainCorridors.forEach(path => path.remove());
+            } else {
+                corridors.replaceChildren();
+            }
+            const corridorWidth = Number(corridors.getAttribute('data-corridor-width')) || 36;
+            for (let index = 0; index < currentRooms.length - 1; index += 1) {
+                const first = currentRooms[index];
+                const next = currentRooms[index + 1];
+                const x1 = first.x + first.width / 2;
+                const y1 = first.y + first.height / 2;
+                const x2 = next.x + next.width / 2;
+                const y2 = next.y + next.height / 2;
+                const bendX = (x1 + x2) / 2;
+                const path = document.createElementNS(namespace, 'path');
+                path.setAttribute('d', `M ${x1} ${y1} H ${bendX} V ${y2} H ${x2}`);
+                path.setAttribute('class', 'dungeon-corridor-main');
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', '#887d68');
+                path.setAttribute('stroke-width', corridorWidth);
+                path.setAttribute('stroke-linecap', 'square');
+                path.setAttribute('stroke-linejoin', 'round');
+                corridors.append(path);
+            }
+            if (
+                svgRoot.getAttribute('data-layout') === 'Kreuzung'
+                && !corridors.hasAttribute('data-corridor-width')
+            ) {
+                const { width, height } = mapDimensions();
+                const crossing = document.createElementNS(namespace, 'path');
+                crossing.setAttribute('d', `M ${width / 2} 0 V ${height}`);
+                crossing.setAttribute('fill', 'none');
+                crossing.setAttribute('stroke', '#887d68');
+                crossing.setAttribute('stroke-width', '36');
+                corridors.append(crossing);
+            }
+        }
+
+            function distanceToSegment(point, start, end) {
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                const lengthSquared = dx * dx + dy * dy;
+                if (!lengthSquared) {
+                    return { distance: Math.hypot(point.x - start.x, point.y - start.y), t: 0 };
+                }
+                const t = Math.max(
+                    0,
+                    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared)
+                );
+                const x = start.x + t * dx;
+                const y = start.y + t * dy;
+                return { distance: Math.hypot(point.x - x, point.y - y), t };
+            }
+
+            function segmentsIntersect(a, b, c, d) {
+                const orientation = (first, second, third) =>
+                    (second.x - first.x) * (third.y - first.y)
+                    - (second.y - first.y) * (third.x - first.x);
+                const firstSide = orientation(a, b, c);
+                const secondSide = orientation(a, b, d);
+                const thirdSide = orientation(c, d, a);
+                const fourthSide = orientation(c, d, b);
+                return firstSide * secondSide < 0 && thirdSide * fourthSide < 0;
+            }
+
+            function renderCustomRooms(overlay) {
+                currentCustomRooms.forEach(room => {
+                    const group = createSvgElement('g', {
+                        class: 'builder-custom-room',
+                        'data-custom-room-id': room.id
+                    });
+                    const pointList = room.corners.map(point => `${point.x},${point.y}`).join(' ');
+                    const floor = createSvgElement('polygon', {
+                        class: 'builder-room-floor',
+                        points: pointList,
+                        fill: '#c4b38d',
+                        stroke: 'none'
+                    });
+                    group.append(floor);
+
+                    room.corners.forEach((start, index) => {
+                        const end = room.corners[(index + 1) % room.corners.length];
+                        const door = (room.doors || []).find(item => item.wall === index);
+                        if (!door) {
+                            group.append(createSvgElement('line', {
+                                class: 'builder-room-wall',
+                                x1: start.x,
+                                y1: start.y,
+                                x2: end.x,
+                                y2: end.y,
+                                stroke: '#393832',
+                                'stroke-width': '12',
+                                'stroke-linecap': 'square'
+                            }));
+                            return;
+                        }
+
+                        const halfOpening = Math.min(18, 0.2 * Math.hypot(end.x - start.x, end.y - start.y));
+                        const tStart = Math.max(0, door.t - halfOpening / Math.hypot(end.x - start.x, end.y - start.y));
+                        const tEnd = Math.min(1, door.t + halfOpening / Math.hypot(end.x - start.x, end.y - start.y));
+                        const gapStart = {
+                            x: start.x + (end.x - start.x) * tStart,
+                            y: start.y + (end.y - start.y) * tStart
+                        };
+                        const gapEnd = {
+                            x: start.x + (end.x - start.x) * tEnd,
+                            y: start.y + (end.y - start.y) * tEnd
+                        };
+                        if (tStart > 0) {
+                            group.append(createSvgElement('line', {
+                                class: 'builder-room-wall',
+                                x1: start.x,
+                                y1: start.y,
+                                x2: gapStart.x,
+                                y2: gapStart.y,
+                                stroke: '#393832',
+                                'stroke-width': '12',
+                                'stroke-linecap': 'square'
+                            }));
+                        }
+                        if (tEnd < 1) {
+                            group.append(createSvgElement('line', {
+                                class: 'builder-room-wall',
+                                x1: gapEnd.x,
+                                y1: gapEnd.y,
+                                x2: end.x,
+                                y2: end.y,
+                                stroke: '#393832',
+                                'stroke-width': '12',
+                                'stroke-linecap': 'square'
+                            }));
+                        }
+                        group.append(createSvgElement('line', {
+                            class: 'builder-door',
+                            x1: gapStart.x,
+                            y1: gapStart.y,
+                            x2: gapEnd.x,
+                            y2: gapEnd.y,
+                            stroke: '#d8c99e',
+                            'stroke-width': '10',
+                            'pointer-events': 'none'
+                        }));
+                        const direction = Math.hypot(end.x - start.x, end.y - start.y);
+                        const leafEnd = {
+                            x: gapStart.x + (end.y - start.y) / direction * halfOpening * 2,
+                            y: gapStart.y - (end.x - start.x) / direction * halfOpening * 2
+                        };
+                        group.append(createSvgElement('line', {
+                            class: 'builder-door',
+                            x1: gapStart.x,
+                            y1: gapStart.y,
+                            x2: leafEnd.x,
+                            y2: leafEnd.y,
+                            stroke: '#68472f',
+                            'stroke-width': '5',
+                            'pointer-events': 'none'
+                        }));
+                        group.append(createSvgElement('path', {
+                            class: 'builder-door',
+                            d: `M ${gapEnd.x} ${gapEnd.y} Q ${leafEnd.x} ${leafEnd.y} ${gapStart.x} ${gapStart.y}`,
+                            fill: 'none',
+                            stroke: '#68472f',
+                            'stroke-width': '2',
+                            'pointer-events': 'none'
+                        }));
+                    });
+
+                    if (selectedId === room.id) {
+                        group.append(createSvgElement('polygon', {
+                            class: 'builder-selection',
+                            points: pointList,
+                            fill: 'none',
+                            stroke: '#bd573d',
+                            'stroke-width': '3',
+                            'stroke-dasharray': '8 6',
+                            'pointer-events': 'none'
+                        }));
+                    }
+                    overlay.append(group);
+                });
+            }
+
+            function addDoorAt(point) {
+                let nearest = null;
+                currentCustomRooms.forEach(room => {
+                    room.corners.forEach((start, index) => {
+                        const end = room.corners[(index + 1) % room.corners.length];
+                        const projection = distanceToSegment(point, start, end);
+                        if (!nearest || projection.distance < nearest.distance) {
+                            nearest = { room, wall: index, ...projection };
+                        }
+                    });
+                });
+                if (!nearest || nearest.distance > 24) {
+                    builderMessage = 'Klicke näher auf eine Wand, um dort eine Tür zu setzen.';
+                    render(svgRoot.__args, true);
+                    return;
+                }
+
+                const start = nearest.room.corners[nearest.wall];
+                const end = nearest.room.corners[(nearest.wall + 1) % nearest.room.corners.length];
+                const wallLength = Math.hypot(end.x - start.x, end.y - start.y);
+                const edgeMargin = Math.min(0.45, 24 / wallLength);
+                nearest.t = Math.max(edgeMargin, Math.min(1 - edgeMargin, nearest.t));
+                const doors = nearest.room.doors || [];
+                const existingIndex = doors.findIndex(
+                    door => door.wall === nearest.wall && Math.abs(door.t - nearest.t) < 0.12
+                );
+                if (existingIndex >= 0) {
+                    rememberUndo();
+                    doors.splice(existingIndex, 1);
+                } else {
+                    rememberUndo();
+                    doors.push({ wall: nearest.wall, t: nearest.t });
+                }
+                nearest.room.doors = doors;
+                selectedId = nearest.room.id;
+                builderMessage = existingIndex >= 0
+                    ? 'Tür entfernt.'
+                    : 'Tür zur Wand hinzugefügt.';
+                render(svgRoot.__args, true);
+                sendState();
+            }
+
+            function renderDraftCorners(overlay) {
+                draftCorners.forEach((point, index) => {
+                    overlay.append(createSvgElement('circle', {
+                        class: 'builder-draft-corner',
+                        cx: point.x,
+                        cy: point.y,
+                        r: '9',
+                        fill: '#bd573d',
+                        stroke: '#fff',
+                        'stroke-width': '3',
+                        'pointer-events': 'none'
+                    }));
+                    if (index > 0) {
+                        const previous = draftCorners[index - 1];
+                        overlay.append(createSvgElement('line', {
+                            x1: previous.x,
+                            y1: previous.y,
+                            x2: point.x,
+                            y2: point.y,
+                            stroke: '#bd573d',
+                            'stroke-width': '4',
+                            'stroke-dasharray': '8 6',
+                            'pointer-events': 'none'
+                        }));
+                    }
+                });
+            }
+
+            function renderEncounterPoints(overlay) {
+                const pointStyles = {
+                    start: { color: '#287a55', symbol: 'S' },
+                    encounter: { color: '#b94c35', symbol: 'B' },
+                    danger: { color: '#68449b', symbol: 'G' },
+                    treasure: { color: '#a77a17', symbol: 'T' }
+                };
+                const { width, height } = mapDimensions();
+                currentEncounterPoints.forEach(point => {
+                    const style = pointStyles[point.type] || {
+                        color: '#456b84',
+                        symbol: '?'
+                    };
+                    const group = createSvgElement('g', {
+                        class: 'builder-encounter-point',
+                        'data-point-id': point.id,
+                        transform: `translate(${point.x} ${point.y})`,
+                        cursor: 'grab'
+                    });
+                    const isSelected = selectedId === point.id;
+                    group.append(createSvgElement('circle', {
+                        r: '18',
+                        fill: style.color,
+                        stroke: isSelected ? '#ffe36e' : '#fff',
+                        'stroke-width': isSelected ? '6' : '4'
+                    }));
+                    const symbol = createSvgElement('text', {
+                        y: '6',
+                        'text-anchor': 'middle',
+                        fill: '#fff',
+                        'font-size': '17',
+                        'font-weight': 'bold',
+                        'pointer-events': 'none'
+                    });
+                    symbol.textContent = style.symbol;
+                    group.append(symbol);
+                    const labelWidth = Math.max(112, Math.min(280, point.label.length * 8 + 20));
+                    const labelX = point.x < width - labelWidth - 24
+                        ? 24
+                        : -labelWidth - 12;
+                    const label = createSvgElement('g', {
+                        transform: `translate(${labelX} 0)`,
+                        'pointer-events': 'none'
+                    });
+                    label.append(createSvgElement('rect', {
+                        x: '0',
+                        y: '-14',
+                        width: labelWidth,
+                        height: '28',
+                        rx: '8',
+                        fill: style.color,
+                        stroke: '#fff',
+                        'stroke-width': '2'
+                    }));
+                    const labelText = createSvgElement('text', {
+                        x: labelWidth / 2,
+                        y: '5',
+                        'text-anchor': 'middle',
+                        fill: '#fff',
+                        'font-size': '14',
+                        'font-weight': 'bold'
+                    });
+                    labelText.textContent = point.label;
+                    label.append(labelText);
+                    group.append(label);
+                    group.addEventListener('pointerdown', event => {
+                        if (event.button !== 0 || activeTool !== 'select') return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        selectedId = point.id;
+                        const start = pointFromEvent(event);
+                        const initial = { x: point.x, y: point.y };
+                        let undoRecorded = false;
+                        let moved = false;
+                        const move = moveEvent => {
+                            const position = pointFromEvent(moveEvent);
+                            if (
+                                !undoRecorded
+                                && Math.hypot(position.x - start.x, position.y - start.y) > 3
+                            ) {
+                                rememberUndo();
+                                undoRecorded = true;
+                            }
+                            if (!undoRecorded) return;
+                            moved = true;
+                            point.x = Math.round(Math.max(
+                                18,
+                                Math.min(width - 18, initial.x + position.x - start.x)
+                            ));
+                            point.y = Math.round(Math.max(
+                                18,
+                                Math.min(height - 18, initial.y + position.y - start.y)
+                            ));
+                            group.setAttribute('transform', `translate(${point.x} ${point.y})`);
+                        };
+                        const end = () => {
+                            svgRoot.removeEventListener('pointermove', move);
+                            svgRoot.removeEventListener('pointerup', end);
+                            svgRoot.removeEventListener('pointercancel', end);
+                            if (moved) {
+                                builderMessage = 'Begegnungspunkt verschoben.';
+                                render(svgRoot.__args, true);
+                                sendState();
+                            } else {
+                                builderMessage = 'Begegnungspunkt ausgewählt.';
+                                render(svgRoot.__args, true);
+                            }
+                        };
+                        svgRoot.addEventListener('pointermove', move);
+                        svgRoot.addEventListener('pointerup', end);
+                        svgRoot.addEventListener('pointercancel', end);
+                    });
+                    overlay.append(group);
+                });
+            }
+
+            function renderRooms(overlay) {
+            currentRooms.forEach(room => {
+                const element = svgRoot.querySelector(`[data-room-id="${room.id}"]`);
+                if (!element) return;
+                updateRoomElement(room);
+                element.setAttribute('stroke', selectedId === room.id ? '#bd573d' : '#353832');
+                element.setAttribute('stroke-width', selectedId === room.id ? '10' : '7');
+
+                element.addEventListener('pointerdown', event => {
+                    if (['stair', 'light', 'terrain'].includes(activeTool)) return;
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectedId = room.id;
+                    const start = pointFromEvent(event);
+                    const initial = { ...room };
+                    const { width, height } = mapDimensions();
+                    let undoRecorded = false;
+                    let moved = false;
+                    const finish = moved => {
+                        svgRoot.removeEventListener('pointermove', move);
+                        svgRoot.removeEventListener('pointerup', end);
+                        svgRoot.removeEventListener('pointercancel', end);
+                        if (moved) {
+                            render(svgRoot.__args, true);
+                            sendState();
+                        } else {
+                            render(svgRoot.__args, true);
+                        }
+                    };
+                    const move = moveEvent => {
+                        const point = pointFromEvent(moveEvent);
+                        if (!undoRecorded && Math.hypot(point.x - start.x, point.y - start.y) > 3) {
+                            rememberUndo();
+                            undoRecorded = true;
+                        }
+                        moved = undoRecorded;
+                        if (!undoRecorded) return;
+                        room.x = Math.max(0, Math.min(width - room.width, initial.x + point.x - start.x));
+                        room.y = Math.max(0, Math.min(height - room.height, initial.y + point.y - start.y));
+                        updateRoomElement(room);
+                        updateCorridors();
+                    };
+                    const end = () => finish(moved);
+                    svgRoot.addEventListener('pointermove', move);
+                    svgRoot.addEventListener('pointerup', end, { once: true });
+                    svgRoot.addEventListener('pointercancel', end, { once: true });
+                });
+            });
+
+            currentRooms.forEach(room => {
+                const handle = document.createElementNS(namespace, 'rect');
+                handle.setAttribute('class', 'builder-handle');
+                handle.setAttribute('x', room.x + room.width - 12);
+                handle.setAttribute('y', room.y + room.height - 12);
+                handle.setAttribute('width', '24');
+                handle.setAttribute('height', '24');
+                handle.setAttribute('rx', '4');
+                handle.setAttribute('fill', '#bd573d');
+                handle.setAttribute('stroke', '#fff');
+                handle.setAttribute('stroke-width', '3');
+                handle.addEventListener('pointerdown', event => {
+                    if (['stair', 'light', 'terrain'].includes(activeTool)) return;
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectedId = room.id;
+                    const start = pointFromEvent(event);
+                    const initial = { width: room.width, height: room.height };
+                    const { width, height } = mapDimensions();
+                    let undoRecorded = false;
+                    const move = moveEvent => {
+                        const point = pointFromEvent(moveEvent);
+                        if (
+                            !undoRecorded
+                            && Math.hypot(point.x - start.x, point.y - start.y) > 3
+                        ) {
+                            rememberUndo();
+                            undoRecorded = true;
+                        }
+                        if (!undoRecorded) return;
+                        room.width = Math.max(
+                            80,
+                            Math.min(400, width - room.x, initial.width + point.x - start.x)
+                        );
+                        room.height = Math.max(
+                            80,
+                            Math.min(300, height - room.y, initial.height + point.y - start.y)
+                        );
+                        updateRoomElement(room);
+                        updateCorridors();
+                        handle.setAttribute('x', room.x + room.width - 12);
+                        handle.setAttribute('y', room.y + room.height - 12);
+                    };
+                    const end = () => {
+                        svgRoot.removeEventListener('pointermove', move);
+                        render(svgRoot.__args, true);
+                        if (undoRecorded) sendState();
+                    };
+                    svgRoot.addEventListener('pointermove', move);
+                    svgRoot.addEventListener('pointerup', end, { once: true });
+                    svgRoot.addEventListener('pointercancel', end, { once: true });
+                });
+                overlay.append(handle);
+            });
+        }
+
+        function drawDecoration(group, decoration) {
+            const isSelected = selectedId === decoration.id;
+            const graphic = document.createElementNS(namespace, 'g');
+            const scale = Number.isFinite(decoration.scale) ? decoration.scale : 1;
+            graphic.setAttribute('transform', `scale(${scale})`);
+
+            if (decoration.type === 'Haus' || decoration.type === 'Hütte') {
+                const isHut = decoration.type === 'Hütte';
+                const walls = document.createElementNS(namespace, 'rect');
+                walls.setAttribute('x', isHut ? '-27' : '-30');
+                walls.setAttribute('y', isHut ? '-5' : '-12');
+                walls.setAttribute('width', isHut ? '54' : '60');
+                walls.setAttribute('height', isHut ? '36' : '44');
+                walls.setAttribute('fill', isHut ? '#b99461' : '#d7c49b');
+                walls.setAttribute('stroke', '#573f2b');
+                walls.setAttribute('stroke-width', '4');
+                const roof = document.createElementNS(namespace, 'path');
+                roof.setAttribute(
+                    'd',
+                    isHut
+                        ? 'M -34 -5 L 0 -36 L 34 -5 Z'
+                        : 'M -37 -11 L 0 -40 L 37 -11 Z'
+                );
+                roof.setAttribute('fill', isHut ? '#76503a' : '#8b4937');
+                roof.setAttribute('stroke', '#573f2b');
+                roof.setAttribute('stroke-width', '4');
+                const door = document.createElementNS(namespace, 'rect');
+                door.setAttribute('x', '-7');
+                door.setAttribute('y', isHut ? '10' : '12');
+                door.setAttribute('width', '14');
+                door.setAttribute('height', isHut ? '21' : '21');
+                door.setAttribute('fill', '#60422f');
+                const windowShape = document.createElementNS(namespace, 'rect');
+                windowShape.setAttribute('x', '-23');
+                windowShape.setAttribute('y', '0');
+                windowShape.setAttribute('width', '10');
+                windowShape.setAttribute('height', '10');
+                windowShape.setAttribute('fill', '#9ec5bf');
+                windowShape.setAttribute('stroke', '#573f2b');
+                windowShape.setAttribute('stroke-width', '2');
+                graphic.append(walls, roof, door, windowShape);
+            } else if (decoration.type === 'Turm') {
+                const tower = document.createElementNS(namespace, 'rect');
+                tower.setAttribute('x', '-25');
+                tower.setAttribute('y', '-25');
+                tower.setAttribute('width', '50');
+                tower.setAttribute('height', '50');
+                tower.setAttribute('rx', '7');
+                tower.setAttribute('fill', '#aaa392');
+                tower.setAttribute('stroke', '#49463e');
+                tower.setAttribute('stroke-width', '5');
+                const roof = document.createElementNS(namespace, 'path');
+                roof.setAttribute('d', 'M -30 -25 L 0 -45 L 30 -25 Z');
+                roof.setAttribute('fill', '#69584a');
+                roof.setAttribute('stroke', '#49463e');
+                roof.setAttribute('stroke-width', '4');
+                const windowShape = document.createElementNS(namespace, 'path');
+                windowShape.setAttribute('d', 'M -6 -15 V -4 H 6 V -15 Q 0 -23 -6 -15 M -6 5 V 16 H 6 V 5 Q 0 -3 -6 5');
+                windowShape.setAttribute('fill', '#39484a');
+                graphic.append(tower, roof, windowShape);
+            } else if (decoration.type === 'Fass') {
+                const body = document.createElementNS(namespace, 'path');
+                body.setAttribute('d', 'M -14 -18 Q -20 0 -14 18 H 14 Q 20 0 14 -18 Z');
+                body.setAttribute('fill', '#9a6037');
+                body.setAttribute('stroke', '#57351f');
+                body.setAttribute('stroke-width', '3');
+                const bands = document.createElementNS(namespace, 'path');
+                bands.setAttribute('d', 'M -17 -9 H 17 M -17 9 H 17');
+                bands.setAttribute('stroke', '#d2b077');
+                bands.setAttribute('stroke-width', '4');
+                graphic.append(body, bands);
+            } else if (decoration.type === 'Fackel') {
+                graphic.append(
+                    createSvgElement('path', {
+                        d: 'M 0 15 V -8 M -7 15 H 7',
+                        stroke: '#57351f',
+                        'stroke-width': '5',
+                        'stroke-linecap': 'round'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M 0 -7 C -17 -17 -4 -28 0 -38 C 4 -28 17 -17 0 -7 Z',
+                        fill: '#f3a43b',
+                        stroke: '#b94f2d',
+                        'stroke-width': '2'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M 0 -11 C -7 -17 -1 -23 0 -27 C 4 -21 8 -16 0 -11 Z',
+                        fill: '#ffe28a'
+                    })
+                );
+            } else if (decoration.type === 'Tisch') {
+                graphic.append(
+                    createSvgElement('rect', {
+                        x: '-22',
+                        y: '-15',
+                        width: '44',
+                        height: '30',
+                        rx: '3',
+                        fill: '#a66b3f',
+                        stroke: '#57351f',
+                        'stroke-width': '4'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M -16 -10 H 16 M -16 10 H 16 M -15 -15 V 15 M 15 -15 V 15',
+                        fill: 'none',
+                        stroke: '#d2a16b',
+                        'stroke-width': '2'
+                    })
+                );
+            } else if (decoration.type === 'Stuhl') {
+                graphic.append(
+                    createSvgElement('rect', {
+                        x: '-13',
+                        y: '-12',
+                        width: '26',
+                        height: '25',
+                        rx: '3',
+                        fill: '#b88750',
+                        stroke: '#57351f',
+                        'stroke-width': '4'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M -13 -5 H 13 M -9 13 V 18 M 9 13 V 18',
+                        fill: 'none',
+                        stroke: '#57351f',
+                        'stroke-width': '4'
+                    })
+                );
+            } else if (decoration.type === 'Bett') {
+                graphic.append(
+                    createSvgElement('rect', {
+                        x: '-16',
+                        y: '-25',
+                        width: '32',
+                        height: '50',
+                        rx: '4',
+                        fill: '#76503a',
+                        stroke: '#493b2c',
+                        'stroke-width': '4'
+                    }),
+                    createSvgElement('rect', {
+                        x: '-12',
+                        y: '-20',
+                        width: '24',
+                        height: '13',
+                        rx: '4',
+                        fill: '#eee3c7',
+                        stroke: '#b7a98c',
+                        'stroke-width': '2'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M -12 -3 H 12 V 20 H -12 Z',
+                        fill: '#8b5360',
+                        stroke: '#623c47',
+                        'stroke-width': '2'
+                    })
+                );
+            } else if (decoration.type === 'Bücherregal') {
+                graphic.append(
+                    createSvgElement('rect', {
+                        x: '-22',
+                        y: '-20',
+                        width: '44',
+                        height: '40',
+                        fill: '#76503a',
+                        stroke: '#493b2c',
+                        'stroke-width': '4'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M -20 -1 H 20',
+                        stroke: '#493b2c',
+                        'stroke-width': '4'
+                    }),
+                    ...[
+                        [-16, -18, '#b94f2d'], [-8, -15, '#d6b657'], [0, -18, '#557b68'],
+                        [8, -13, '#526b8b'], [15, -17, '#a66b3f'], [-14, 1, '#526b8b'],
+                        [-5, 3, '#b94f2d'], [4, 0, '#d6b657'], [13, 2, '#557b68']
+                    ].map(([x, y, fill]) => createSvgElement('rect', {
+                        x,
+                        y,
+                        width: '6',
+                        height: '16',
+                        rx: '1',
+                        fill,
+                        stroke: '#493b2c',
+                        'stroke-width': '1'
+                    }))
+                );
+            } else if (decoration.type === 'Teppich') {
+                graphic.append(
+                    createSvgElement('rect', {
+                        x: '-23',
+                        y: '-16',
+                        width: '46',
+                        height: '32',
+                        rx: '7',
+                        fill: '#9b4e45',
+                        stroke: '#573f2b',
+                        'stroke-width': '3'
+                    }),
+                    createSvgElement('rect', {
+                        x: '-16',
+                        y: '-10',
+                        width: '32',
+                        height: '20',
+                        rx: '4',
+                        fill: 'none',
+                        stroke: '#e0bd79',
+                        'stroke-width': '2'
+                    }),
+                    createSvgElement('path', {
+                        d: 'M -8 -6 L 0 0 L 8 -6 M -8 6 L 0 0 L 8 6',
+                        fill: 'none',
+                        stroke: '#e0bd79',
+                        'stroke-width': '2'
+                    })
+                );
+            } else {
+                const body = document.createElementNS(namespace, 'rect');
+                body.setAttribute('x', '-18');
+                body.setAttribute('y', '-18');
+                body.setAttribute('width', '36');
+                body.setAttribute('height', '36');
+                body.setAttribute('rx', '3');
+                body.setAttribute('fill', '#b88750');
+                body.setAttribute('stroke', '#57351f');
+                body.setAttribute('stroke-width', '3');
+                const detail = document.createElementNS(namespace, 'path');
+                detail.setAttribute('d', 'M -13 -13 L 13 13');
+                detail.setAttribute('stroke', '#704622');
+                detail.setAttribute('stroke-width', '3');
+                const nail = document.createElementNS(namespace, 'circle');
+                nail.setAttribute('cx', '-10');
+                nail.setAttribute('cy', '10');
+                nail.setAttribute('r', '2');
+                nail.setAttribute('fill', '#57351f');
+                graphic.append(body, detail, nail);
+            }
+            group.append(graphic);
+            group.setAttribute('class', 'builder-item');
+            group.setAttribute(
+                'transform',
+                `translate(${decoration.x} ${decoration.y}) rotate(${decoration.rotation || 0})`
+            );
+            group.setAttribute('aria-label', decoration.type);
+            group.setAttribute('data-decoration-id', decoration.id);
+            if (isSelected) {
+                const selection = document.createElementNS(namespace, 'circle');
+                selection.setAttribute('class', 'builder-selection');
+                selection.setAttribute('r', '25');
+                selection.setAttribute('fill', 'none');
+                selection.setAttribute('stroke', '#bd573d');
+                selection.setAttribute('stroke-width', '3');
+                group.prepend(selection);
+            }
+            if (isSelected) {
+                const handle = document.createElementNS(namespace, 'circle');
+                handle.setAttribute('class', 'builder-size-handle');
+                handle.setAttribute('cx', '38');
+                handle.setAttribute('cy', '38');
+                handle.setAttribute('r', '8');
+                handle.setAttribute('fill', '#bd573d');
+                handle.setAttribute('stroke', '#fff');
+                handle.setAttribute('stroke-width', '3');
+                handle.addEventListener('pointerdown', event => {
+                    if (['stair', 'light', 'terrain'].includes(activeTool)) return;
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const start = pointFromEvent(event);
+                    let undoRecorded = false;
+                    const initialScale = Number.isFinite(decoration.scale)
+                        ? decoration.scale
+                        : 1;
+                    const move = moveEvent => {
+                        const point = pointFromEvent(moveEvent);
+                        if (
+                            !undoRecorded
+                            && Math.hypot(point.x - start.x, point.y - start.y) > 3
+                        ) {
+                            rememberUndo();
+                            undoRecorded = true;
+                        }
+                        if (!undoRecorded) return;
+                        const delta = Math.max(point.x - start.x, point.y - start.y);
+                        decoration.scale = Math.max(0.6, Math.min(2.5, initialScale + delta / 90));
+                        graphic.setAttribute('transform', `scale(${decoration.scale})`);
+                    };
+                    const end = () => {
+                        svgRoot.removeEventListener('pointermove', move);
+                        render(svgRoot.__args, true);
+                        if (undoRecorded) sendState();
+                    };
+                    svgRoot.addEventListener('pointermove', move);
+                    svgRoot.addEventListener('pointerup', end, { once: true });
+                    svgRoot.addEventListener('pointercancel', end, { once: true });
+                });
+                group.append(handle);
+            }
+            group.addEventListener('pointerdown', event => {
+                if (['stair', 'light', 'terrain'].includes(activeTool)) return;
+                if (event.button !== 0) return;
+                const placeInside = (
+                    canPlaceDecoration(selectedDecoration)
+                    && isBuilding(decoration)
+                    && isInsideBuilding(decoration, pointFromEvent(event))
+                );
+                if (placeInside) return;
+                event.preventDefault();
+                event.stopPropagation();
+                selectedId = decoration.id;
+                const start = pointFromEvent(event);
+                const initial = { x: decoration.x, y: decoration.y };
+                let undoRecorded = false;
+                const move = moveEvent => {
+                    const point = pointFromEvent(moveEvent);
+                    if (
+                        !undoRecorded
+                        && Math.hypot(point.x - start.x, point.y - start.y) > 3
+                    ) {
+                        rememberUndo();
+                        undoRecorded = true;
+                    }
+                    if (!undoRecorded) return;
+                    const position = clampDecorationPosition({
+                        x: initial.x + point.x - start.x,
+                        y: initial.y + point.y - start.y
+                    });
+                    decoration.x = position.x;
+                    decoration.y = position.y;
+                    group.setAttribute(
+                        'transform',
+                        `translate(${decoration.x} ${decoration.y}) rotate(${decoration.rotation || 0})`
+                    );
+                };
+                const end = () => {
+                    svgRoot.removeEventListener('pointermove', move);
+                    render(svgRoot.__args, true);
+                    if (undoRecorded) sendState();
+                };
+                svgRoot.addEventListener('pointermove', move);
+                svgRoot.addEventListener('pointerup', end, { once: true });
+                svgRoot.addEventListener('pointercancel', end, { once: true });
+            });
+        }
+
+        function render(args, preserveLocalState = false) {
+            if (
+                !preserveLocalState
+                && Number.isInteger(args.revision)
+                && args.revision >= currentRevision
+            ) {
+                currentRevision = args.revision;
+                currentRooms = Array.isArray(args.rooms) ? args.rooms.map(room => ({ ...room })) : [];
+                currentEncounterPoints = Array.isArray(args.encounter_points)
+                    ? args.encounter_points.map(point => ({ ...point }))
+                    : [];
+                currentDecorations = Array.isArray(args.decorations)
+                    ? args.decorations.map(decoration => ({ ...decoration }))
+                    : [];
+                currentCustomRooms = Array.isArray(args.custom_rooms)
+                    ? args.custom_rooms.map(room => ({
+                        ...room,
+                        corners: room.corners.map(point => ({ ...point })),
+                        doors: (room.doors || []).map(door => ({ ...door }))
+                    }))
+                    : [];
+                currentStairs = Array.isArray(args.stairs)
+                    ? args.stairs.map(stair => ({ ...stair }))
+                    : [];
+                currentLights = Array.isArray(args.lights)
+                    ? args.lights.map(light => ({
+                        ...light,
+                        brightness: Number.isFinite(light.brightness)
+                            ? light.brightness
+                            : 100
+                    }))
+                    : [];
+                currentTerrain = Array.isArray(args.terrain)
+                    ? args.terrain.map(area => ({
+                        ...area,
+                        points: area.points.map(point => ({ ...point }))
+                    }))
+                    : [];
+                darknessEnabled = args.darkness_enabled === true;
+                gridVisible = args.grid_visible !== false;
+                coordinatesVisible = args.coordinates_visible === true;
+                selectedId = args.selected_id || null;
+            }
+            selectedDecoration = args.selected_decoration || 'Auswählen';
+            selectedTerrainType = ['Wasser', 'Lava', 'Grube'].includes(args.selected_terrain_type)
+                ? args.selected_terrain_type
+                : 'Wasser';
+            app.replaceChildren();
+
+            const hint = document.createElement('p');
+            hint.className = 'builder-hint';
+            hint.textContent = builderMessage || (activeTool === 'room'
+                ? `Klicke die vier Ecken des Raums der Reihe nach an (${draftCorners.length}/4).`
+                : activeTool === 'door'
+                    ? 'Klicke nahe auf eine Wand, um dort eine Tür hinzuzufügen oder zu entfernen.'
+                    : activeTool === 'stair'
+                        ? 'Klicke in einen Raum oder ein Gebäude, um dort eine Treppe zu platzieren oder zu entfernen.'
+                    : activeTool === 'light'
+                        ? 'Klicke auf die Karte, um eine Lichtquelle zu setzen oder in ihrer Nähe zu entfernen.'
+                    : activeTool === 'terrain'
+                        ? `Klicke die Randpunkte für ${selectedTerrainType} an und schließe die Fläche anschließend ab.`
+                    : currentRooms.length
+                ? 'Räume und Dekorationen auswählen und ziehen. Dekorationen lassen sich drehen; Gebäude zusätzlich am Griff vergrößern.'
+                    : 'Dekorationen auswählen, platzieren und ziehen. Sie lassen sich drehen; Gebäude zusätzlich am Griff vergrößern.');
+            app.append(hint);
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'builder-toolbar';
+            const createToolGroup = label => {
+                const section = document.createElement('section');
+                section.className = 'builder-tool-group';
+                const heading = document.createElement('h3');
+                heading.textContent = label;
+                const controls = document.createElement('div');
+                controls.className = 'builder-tool-controls';
+                section.append(heading, controls);
+                toolbar.append(section);
+                return controls;
+            };
+            const mapTools = createToolGroup('Karte bearbeiten');
+            const viewTools = createToolGroup('Ansicht');
+            const selectedObjectTools = createToolGroup('Auswahl bearbeiten');
+            const exportTools = createToolGroup('Export');
+            [
+                { label: 'Raum: 4 Ecken setzen', tool: 'room' },
+                { label: 'Tür setzen / entfernen', tool: 'door' },
+                { label: 'Treppe setzen / entfernen', tool: 'stair' },
+                { label: 'Lichtquelle setzen / entfernen', tool: 'light' },
+                { label: 'Gelände-Fläche zeichnen', tool: 'terrain' },
+                { label: 'Abbrechen', tool: 'select' }
+            ].forEach(({ label, tool }) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = label;
+                button.classList.toggle('active', activeTool === tool && tool !== 'select');
+                button.disabled = tool === 'select' && activeTool === 'select' && draftCorners.length === 0;
+                button.addEventListener('click', () => {
+                    if (tool !== 'room' || activeTool === 'room') draftCorners = [];
+                    if (tool !== 'terrain' || activeTool === 'terrain') {
+                        draftTerrainPoints = [];
+                    }
+                    activeTool = tool === activeTool && tool !== 'select' ? 'select' : tool;
+                    builderMessage = activeTool === 'room'
+                        ? 'Klicke vier Ecken in der gewünschten Reihenfolge an.'
+                        : activeTool === 'door'
+                            ? 'Klicke nahe auf eine Wand, um dort eine Tür hinzuzufügen oder zu entfernen.'
+                            : activeTool === 'light'
+                                ? 'Klicke auf die Karte, um eine Lichtquelle zu setzen oder in ihrer Nähe zu entfernen.'
+                                : activeTool === 'terrain'
+                                    ? `Klicke die Randpunkte für ${selectedTerrainType} an.`
+                                : '';
+                    render(svgRoot.__args, true);
+                });
+                mapTools.append(button);
+            });
+            const finishTerrainButton = document.createElement('button');
+            finishTerrainButton.type = 'button';
+            finishTerrainButton.textContent = 'Fläche abschließen';
+            finishTerrainButton.disabled = activeTool !== 'terrain' || draftTerrainPoints.length < 3;
+            finishTerrainButton.addEventListener('click', finishTerrainArea);
+            mapTools.append(finishTerrainButton);
+            const cancelTerrainButton = document.createElement('button');
+            cancelTerrainButton.type = 'button';
+            cancelTerrainButton.textContent = 'Entwurf verwerfen';
+            cancelTerrainButton.disabled = activeTool !== 'terrain' || draftTerrainPoints.length === 0;
+            cancelTerrainButton.addEventListener('click', () => {
+                draftTerrainPoints = [];
+                activeTool = 'select';
+                builderMessage = 'Gelände-Entwurf verworfen.';
+                render(svgRoot.__args, true);
+            });
+            mapTools.append(cancelTerrainButton);
+            const darknessButton = document.createElement('button');
+            darknessButton.type = 'button';
+            darknessButton.textContent = `Dunkelheit: ${darknessEnabled ? 'an' : 'aus'}`;
+            darknessButton.classList.toggle('active', darknessEnabled);
+            darknessButton.title = 'Blendet die Karte ab und lässt Bereiche um Lichtquellen sichtbar.';
+            darknessButton.addEventListener('click', () => {
+                rememberUndo();
+                darknessEnabled = !darknessEnabled;
+                builderMessage = darknessEnabled
+                    ? 'Dunkelheit eingeschaltet. Setze Lichtquellen auf die Karte.'
+                    : 'Dunkelheit ausgeschaltet.';
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            viewTools.append(darknessButton);
+            const gridButton = document.createElement('button');
+            gridButton.type = 'button';
+            gridButton.textContent = `Raster: ${gridVisible ? 'an' : 'aus'}`;
+            gridButton.classList.toggle('active', gridVisible);
+            gridButton.addEventListener('click', () => {
+                gridVisible = !gridVisible;
+                builderMessage = gridVisible ? 'Raster eingeblendet.' : 'Raster ausgeblendet.';
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            viewTools.append(gridButton);
+            const coordinatesButton = document.createElement('button');
+            coordinatesButton.type = 'button';
+            coordinatesButton.textContent = `Koordinaten: ${coordinatesVisible ? 'an' : 'aus'}`;
+            coordinatesButton.classList.toggle('active', coordinatesVisible);
+            coordinatesButton.title = 'Zeigt Spaltenbuchstaben und Zeilennummern am Raster.';
+            coordinatesButton.addEventListener('click', () => {
+                coordinatesVisible = !coordinatesVisible;
+                builderMessage = coordinatesVisible
+                    ? 'Rasterkoordinaten eingeblendet.'
+                    : 'Rasterkoordinaten ausgeblendet.';
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            viewTools.append(coordinatesButton);
+            const pngExportButton = document.createElement('button');
+            pngExportButton.type = 'button';
+            pngExportButton.textContent = 'PNG herunterladen';
+            pngExportButton.title = 'Exportiert die Karte ohne Editor-Steuerelemente, immer mit Raster und Koordinaten.';
+            pngExportButton.addEventListener('click', () => exportMap('png'));
+            exportTools.append(pngExportButton);
+            const pdfExportButton = document.createElement('button');
+            pdfExportButton.type = 'button';
+            pdfExportButton.textContent = 'PDF herunterladen';
+            pdfExportButton.title = 'Erstellt eine druckbare PDF-Karte ohne Editor-Steuerelemente.';
+            pdfExportButton.addEventListener('click', () => exportMap('pdf'));
+            exportTools.append(pdfExportButton);
+            const selectedIsDecoration = currentDecorations.some(
+                decoration => decoration.id === selectedId
+            );
+            const selectedIsCustomRoom = currentCustomRooms.some(
+                room => room.id === selectedId
+            );
+            const selectedEncounterPoint = currentEncounterPoints.find(
+                point => point.id === selectedId
+            );
+            const selectedLight = currentLights.find(light => light.id === selectedId);
+            const undoButton = document.createElement('button');
+            undoButton.type = 'button';
+            undoButton.textContent = 'Rückgängig';
+            undoButton.disabled = undoHistory.length === 0;
+            undoButton.title = 'Macht den letzten Bearbeitungsschritt rückgängig.';
+            undoButton.addEventListener('click', undoLastStep);
+            selectedObjectTools.append(undoButton);
+            const redoButton = document.createElement('button');
+            redoButton.type = 'button';
+            redoButton.textContent = 'Wiederholen';
+            redoButton.disabled = redoHistory.length === 0;
+            redoButton.title = 'Stellt den zuletzt rückgängig gemachten Schritt wieder her.';
+            redoButton.addEventListener('click', redoLastStep);
+            selectedObjectTools.append(redoButton);
+            const lightSelect = document.createElement('select');
+            lightSelect.setAttribute('aria-label', 'Lichtquelle zum Einstellen auswählen');
+            lightSelect.style.cssText = (
+                'flex: 1 1 100%; min-height: 36px; padding: 7px 9px; '
+                + 'border: 1px solid #c5d0ca; border-radius: 6px; '
+                + 'background: #fff; color: #193c32; font: inherit;'
+            );
+            const lightPlaceholder = document.createElement('option');
+            lightPlaceholder.value = '';
+            lightPlaceholder.textContent = currentLights.length
+                ? 'Lichtquelle auswählen'
+                : 'Noch keine Lichtquelle vorhanden';
+            lightSelect.append(lightPlaceholder);
+            currentLights.forEach((light, index) => {
+                const option = document.createElement('option');
+                option.value = light.id;
+                option.textContent = `Lichtquelle ${index + 1}`;
+                option.selected = light.id === selectedId;
+                lightSelect.append(option);
+            });
+            lightSelect.disabled = currentLights.length === 0;
+            lightSelect.addEventListener('change', () => {
+                selectedId = lightSelect.value || null;
+                render(svgRoot.__args, true);
+            });
+            selectedObjectTools.append(lightSelect);
+            const lightBrightnessControl = document.createElement('label');
+            lightBrightnessControl.className = 'builder-light-brightness';
+            const brightnessLabel = document.createElement('span');
+            brightnessLabel.textContent = 'Helligkeit';
+            const brightnessSlider = document.createElement('input');
+            brightnessSlider.type = 'range';
+            brightnessSlider.min = '0';
+            brightnessSlider.max = '100';
+            brightnessSlider.step = '5';
+            brightnessSlider.value = String(selectedLight?.brightness ?? 100);
+            brightnessSlider.disabled = !selectedLight;
+            brightnessSlider.setAttribute('aria-label', 'Helligkeit der Lichtquelle');
+            const brightnessValue = document.createElement('output');
+            brightnessValue.textContent = `${brightnessSlider.value}%`;
+            let brightnessUndoRecorded = false;
+            const rememberBrightnessUndo = () => {
+                if (brightnessUndoRecorded) return;
+                rememberUndo();
+                brightnessUndoRecorded = true;
+            };
+            brightnessSlider.addEventListener('input', () => {
+                const light = currentLights.find(item => item.id === lightSelect.value);
+                if (!light) return;
+                rememberBrightnessUndo();
+                light.brightness = Number(brightnessSlider.value);
+                brightnessValue.textContent = `${light.brightness}%`;
+                renderLightingLayer();
+            });
+            brightnessSlider.addEventListener('change', () => {
+                if (!brightnessUndoRecorded) return;
+                brightnessUndoRecorded = false;
+                builderMessage = `Lichtquelle auf ${brightnessSlider.value}% Helligkeit eingestellt.`;
+                sendState();
+            });
+            lightBrightnessControl.append(
+                brightnessLabel,
+                brightnessSlider,
+                brightnessValue
+            );
+            selectedObjectTools.append(lightBrightnessControl);
+            const renameEncounterPointButton = document.createElement('button');
+            renameEncounterPointButton.type = 'button';
+            renameEncounterPointButton.textContent = 'Name übernehmen';
+            renameEncounterPointButton.disabled = !selectedEncounterPoint;
+            const encounterPointName = document.createElement('input');
+            encounterPointName.type = 'text';
+            encounterPointName.maxLength = 40;
+            encounterPointName.placeholder = 'Name des Punkts';
+            encounterPointName.value = selectedEncounterPoint?.label || '';
+            encounterPointName.disabled = !selectedEncounterPoint;
+            encounterPointName.setAttribute('aria-label', 'Name des Begegnungspunkts');
+            renameEncounterPointButton.addEventListener('click', () => {
+                if (!selectedEncounterPoint) return;
+                const label = encounterPointName.value.trim();
+                if (!label) return;
+                rememberUndo();
+                selectedEncounterPoint.label = label.slice(0, 40);
+                builderMessage = 'Begegnungspunkt umbenannt.';
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            selectedObjectTools.append(encounterPointName);
+            selectedObjectTools.append(renameEncounterPointButton);
+            [
+                { label: '↶ 45° drehen', degrees: -45 },
+                { label: '↷ 45° drehen', degrees: 45 }
+            ].forEach(({ label, degrees }) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = label;
+                button.disabled = !selectedIsDecoration;
+                button.addEventListener('click', () => {
+                    const decoration = currentDecorations.find(
+                        item => item.id === selectedId
+                    );
+                    if (!decoration) return;
+                    rememberUndo();
+                    decoration.rotation = ((decoration.rotation || 0) + degrees + 360) % 360;
+                    render(svgRoot.__args, true);
+                    sendState();
+                });
+                selectedObjectTools.append(button);
+            });
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.textContent = 'Ausgewähltes Objekt entfernen';
+            removeButton.disabled = (
+                !selectedIsDecoration
+                && !selectedIsCustomRoom
+                && !selectedEncounterPoint
+            );
+            removeButton.addEventListener('click', () => {
+                if (selectedIsDecoration) {
+                    rememberUndo();
+                    currentDecorations = currentDecorations.filter(
+                        decoration => decoration.id !== selectedId
+                    );
+                } else if (selectedIsCustomRoom) {
+                    rememberUndo();
+                    currentCustomRooms = currentCustomRooms.filter(
+                        room => room.id !== selectedId
+                    );
+                } else if (selectedEncounterPoint) {
+                    rememberUndo();
+                    currentEncounterPoints = currentEncounterPoints.filter(
+                        point => point.id !== selectedId
+                    );
+                } else {
+                    return;
+                }
+                selectedId = null;
+                render(svgRoot.__args, true);
+                sendState();
+            });
+            selectedObjectTools.append(removeButton);
+            app.append(toolbar);
+
+            const parsed = new DOMParser().parseFromString(args.svg, 'image/svg+xml');
+            svgRoot = parsed.documentElement;
+            svgRoot.querySelectorAll('.encounter-point').forEach(point => point.remove());
+            svgRoot.__args = args;
+            const corridors = svgRoot.querySelector('.dungeon-corridors');
+            if (corridors) updateCorridors();
+            updateGridVisibility();
+            renderTerrainLayer();
+            renderLightingLayer();
+            renderCoordinates();
+            const overlay = document.createElementNS(namespace, 'g');
+            overlay.setAttribute('class', 'builder-overlay');
+            svgRoot.append(overlay);
+            renderRooms(overlay);
+            renderCustomRooms(overlay);
+            renderStairs(overlay);
+            renderLights(overlay);
+            renderDraftCorners(overlay);
+            renderTerrainDraft(overlay);
+            currentDecorations.forEach(decoration => {
+                const group = document.createElementNS(namespace, 'g');
+                drawDecoration(group, decoration);
+                overlay.append(group);
+            });
+            renderEncounterPoints(overlay);
+
+            svgRoot.addEventListener('click', event => {
+                const point = pointFromEvent(event);
+                if (event.target.closest('.builder-encounter-point')) return;
+                if (activeTool === 'door') {
+                    addDoorAt(point);
+                    return;
+                }
+                if (activeTool === 'stair') {
+                    toggleStairAt(point);
+                    return;
+                }
+                if (activeTool === 'light') {
+                    toggleLightAt(point);
+                    return;
+                }
+                if (activeTool === 'terrain') {
+                    addTerrainPoint(point);
+                    return;
+                }
+                if (activeTool === 'room') {
+                    if (draftCorners.some(corner => Math.hypot(
+                        corner.x - point.x,
+                        corner.y - point.y
+                    ) < 20)) return;
+                    draftCorners.push({
+                        x: Math.round(point.x),
+                        y: Math.round(point.y)
+                    });
+                    if (draftCorners.length === 4) {
+                        const area = Math.abs(draftCorners.reduce((sum, corner, index) => {
+                            const next = draftCorners[(index + 1) % draftCorners.length];
+                            return sum + corner.x * next.y - next.x * corner.y;
+                        }, 0)) / 2;
+                        const crossesItself = segmentsIntersect(
+                            draftCorners[0],
+                            draftCorners[1],
+                            draftCorners[2],
+                            draftCorners[3]
+                        ) || segmentsIntersect(
+                            draftCorners[1],
+                            draftCorners[2],
+                            draftCorners[3],
+                            draftCorners[0]
+                        );
+                        if (area >= 1600 && !crossesItself) {
+                            rememberUndo();
+                            currentCustomRooms.push({
+                                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                                corners: draftCorners,
+                                doors: []
+                            });
+                            selectedId = currentCustomRooms[currentCustomRooms.length - 1].id;
+                            activeTool = 'select';
+                            draftCorners = [];
+                            builderMessage = 'Raum mit Boden und Wänden erstellt.';
+                            render(svgRoot.__args, true);
+                            sendState();
+                        } else {
+                            draftCorners = [];
+                            builderMessage = 'Diese Eckpunkte ergeben keinen gültigen Raum. Bitte vier Ecken neu setzen.';
+                            render(svgRoot.__args, true);
+                        }
+                    } else {
+                        render(svgRoot.__args, true);
+                    }
+                    return;
+                }
+                const targetItem = event.target.closest('.builder-item');
+                if (targetItem) {
+                    const decoration = currentDecorations.find(
+                        item => item.id === targetItem.getAttribute('data-decoration-id')
+                    );
+                    if (
+                        decoration
+                        && isBuilding(decoration)
+                        && isInsideBuilding(decoration, point)
+                        && canPlaceDecoration(selectedDecoration)
+                    ) {
+                        placeDecorationAt(point);
+                    }
+                    return;
+                }
+                if (event.target.closest('.builder-handle, .builder-size-handle')) return;
+                const customRoom = event.target.closest('[data-custom-room-id]');
+                const customFloor = event.target.closest('.builder-room-floor');
+                if (customRoom && customFloor && canPlaceDecoration(selectedDecoration)) {
+                    const room = currentCustomRooms.find(
+                        item => item.id === customRoom.getAttribute('data-custom-room-id')
+                    );
+                    if (room && isInsideRoom(room, point)) {
+                        placeDecorationAt(point);
+                        return;
+                    }
+                }
+                if (customRoom) {
+                    selectedId = customRoom.getAttribute('data-custom-room-id');
+                    render(svgRoot.__args, true);
+                    sendState();
+                    return;
+                }
+                if (event.target.closest('.dungeon-room')) return;
+                placeDecorationAt(point);
+            });
+
+            const board = document.createElement('div');
+            board.className = 'builder-board';
+            board.append(svgRoot);
+            app.append(board);
+            updateHeight();
+        }
+
+        window.addEventListener('message', event => {
+            if (event.data && event.data.type === 'streamlit:render') {
+                render(event.data.args || {});
+            }
+        });
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: 'streamlit:componentReady',
+            apiVersion: 1
+        }, '*');
+        new ResizeObserver(updateHeight).observe(document.body);
+    </script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import base64
+import copy
 import random
 import uuid
 from pathlib import Path
@@ -6,11 +7,22 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
+from map_generator import (
+    CHUNK_SIZE_OPTIONS,
+    DEFAULT_CHUNK_SIZE,
+    MAP_OPTION_COUNT,
+    generate_maps,
+)
+from initiative_tracker import next_turn, ordered_combatants, roll_initiative
+
 
 # Seitentitel und zentrale Einstellungen für Würfel, Farben und Effekte.
 st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
 image_pin_board = components.declare_component(
     "image_pin_board", path=str(Path(__file__).parent / "image_pin_component")
+)
+map_builder_component = components.declare_component(
+    "map_builder", path=str(Path(__file__).parent / "map_builder_component")
 )
 
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
@@ -533,6 +545,14 @@ if "active_effects" not in st.session_state:
     st.session_state.active_effects = []
 if "bosses" not in st.session_state:
     st.session_state.bosses = []
+if "initiative_combatants" not in st.session_state:
+    st.session_state.initiative_combatants = []
+if "initiative_round" not in st.session_state:
+    st.session_state.initiative_round = 1
+if "initiative_active_id" not in st.session_state:
+    st.session_state.initiative_active_id = None
+if "image_upload_key" not in st.session_state:
+    st.session_state.image_upload_key = "display_image_upload"
 for boss in st.session_state.bosses:
     boss.setdefault("id", uuid.uuid4().hex)
     boss.setdefault("token", 1)
@@ -577,6 +597,107 @@ def remove_boss(boss_id: str) -> None:
     ]
 
 
+def remove_initiative_combatant(combatant_id: str) -> None:
+    st.session_state.initiative_combatants = [
+        combatant
+        for combatant in st.session_state.initiative_combatants
+        if combatant["id"] != combatant_id
+    ]
+    if st.session_state.initiative_active_id == combatant_id:
+        st.session_state.initiative_active_id = None
+
+
+def advance_initiative_turn() -> None:
+    active_id, round_number = next_turn(
+        st.session_state.initiative_combatants,
+        st.session_state.initiative_active_id,
+        st.session_state.initiative_round,
+    )
+    st.session_state.initiative_active_id = active_id
+    st.session_state.initiative_round = round_number
+
+
+def reset_initiative_tracker() -> None:
+    st.session_state.initiative_combatants = []
+    st.session_state.initiative_round = 1
+    st.session_state.initiative_active_id = None
+
+
+def restart_initiative_round() -> None:
+    st.session_state.initiative_round = 1
+    st.session_state.initiative_active_id = None
+
+
+def load_map_in_image_mode(svg: str) -> None:
+    """Opens the selected generated map in the pin-enabled image mode."""
+    st.session_state.display_image = svg.encode("utf-8")
+    st.session_state.display_image_type = "image/svg+xml"
+    st.session_state.image_pins = []
+    st.session_state.image_pins_revision = 0
+    st.session_state.fog_strokes = []
+    st.session_state.fog_base_revealed = False
+    st.session_state.fog_revision = st.session_state.get("fog_revision", 0) + 1
+    st.session_state.image_pin_component_key = uuid.uuid4().hex
+    st.session_state.image_upload_key = uuid.uuid4().hex
+    st.session_state.app_mode = "Bild-Modus"
+
+
+def start_map_builder(map_index: int, collection_name: str = "generated_maps") -> None:
+    """Opens a generated or temporarily saved map in the interactive builder."""
+    map_data = st.session_state[collection_name][map_index]
+    map_data.setdefault("builder_rooms", [dict(room) for room in map_data["rooms"]])
+    map_data.setdefault(
+        "builder_encounter_points",
+        [dict(point) for point in map_data.get("encounter_points", [])],
+    )
+    map_data.setdefault("builder_decorations", [])
+    map_data.setdefault("builder_custom_rooms", [])
+    map_data.setdefault("builder_stairs", [])
+    map_data.setdefault("builder_lights", [])
+    map_data.setdefault("builder_terrain", [])
+    map_data.setdefault("builder_darkness_enabled", False)
+    map_data.setdefault("builder_grid_visible", True)
+    map_data.setdefault("builder_coordinates_visible", False)
+    map_data.setdefault("builder_svg", map_data["svg"])
+    map_data.setdefault("builder_revision", 0)
+    map_data.setdefault("builder_selected_id", None)
+    st.session_state.map_builder_collection = collection_name
+    st.session_state.map_builder_index = map_index
+
+
+def start_saved_map_builder(map_index: int) -> None:
+    start_map_builder(map_index, "saved_maps")
+
+
+def save_map_temporarily(
+    map_index: int,
+    collection_name: str = "generated_maps",
+) -> None:
+    saved_maps = st.session_state.setdefault("saved_maps", [])
+    map_copy = copy.deepcopy(st.session_state[collection_name][map_index])
+    map_copy["saved_id"] = uuid.uuid4().hex
+    saved_maps.append(map_copy)
+    if len(saved_maps) > 8:
+        del saved_maps[0]
+
+
+def remove_saved_map(saved_id: str) -> None:
+    st.session_state.saved_maps = [
+        map_data
+        for map_data in st.session_state.get("saved_maps", [])
+        if map_data.get("saved_id") != saved_id
+    ]
+
+
+def clear_saved_maps() -> None:
+    st.session_state.saved_maps = []
+
+
+def return_to_map_gallery() -> None:
+    """Closes the builder and returns to the generated map choices."""
+    st.session_state.map_builder_index = None
+
+
 # Kopfbereich und dreispaltiges Hauptlayout der App.
 st.markdown(
     """
@@ -600,7 +721,7 @@ def render_image_mode():
         uploaded_image = st.file_uploader(
             "Bild hochladen",
             type=["png", "jpg", "jpeg", "webp", "gif"],
-            key="display_image_upload",
+            key=st.session_state.image_upload_key,
         )
     if uploaded_image is not None:
         image_bytes = uploaded_image.getvalue()
@@ -608,6 +729,9 @@ def render_image_mode():
             st.session_state.display_image = image_bytes
             st.session_state.image_pins = []
             st.session_state.image_pins_revision = 0
+            st.session_state.fog_strokes = []
+            st.session_state.fog_base_revealed = False
+            st.session_state.fog_revision = st.session_state.get("fog_revision", 0) + 1
             st.session_state.image_pin_component_key = uuid.uuid4().hex
         st.session_state.display_image_type = uploaded_image.type or "image/png"
 
@@ -615,6 +739,9 @@ def render_image_mode():
         st.session_state.setdefault("image_pins", [])
         st.session_state.setdefault("image_pins_revision", 0)
         st.session_state.setdefault("image_pin_component_key", uuid.uuid4().hex)
+        st.session_state.setdefault("fog_strokes", [])
+        st.session_state.setdefault("fog_base_revealed", False)
+        st.session_state.setdefault("fog_revision", 0)
         with st.container(key="image_mode_preview"):
             selected_pin_label = st.selectbox(
                 "Pin-Beschriftung",
@@ -626,6 +753,53 @@ def render_image_mode():
                 value=True,
                 key="image_pin_details_visible",
             )
+            fog_controls = st.columns([1.2, 1, 1])
+            with fog_controls[0]:
+                fog_enabled = st.toggle(
+                    "Nebel des Krieges",
+                    value=False,
+                    key="fog_enabled",
+                    help="Verdeckt die Karte. Aufgedeckte Bereiche bleiben sichtbar.",
+                )
+            with fog_controls[1]:
+                fog_mode = st.selectbox(
+                    "Nebel-Werkzeug",
+                    ["Aufdecken", "Verdecken"],
+                    key="fog_mode",
+                    disabled=not fog_enabled,
+                )
+            with fog_controls[2]:
+                fog_brush_size = st.slider(
+                    "Pinselgröße",
+                    min_value=3,
+                    max_value=30,
+                    value=10,
+                    step=1,
+                    format="%d%%",
+                    key="fog_brush_size",
+                    disabled=not fog_enabled,
+                )
+            fog_actions = st.columns(2)
+            with fog_actions[0]:
+                if st.button(
+                    "Alles verdecken",
+                    disabled=not fog_enabled,
+                    key="fog_cover_all",
+                    use_container_width=True,
+                ):
+                    st.session_state.fog_strokes = []
+                    st.session_state.fog_base_revealed = False
+                    st.session_state.fog_revision += 1
+            with fog_actions[1]:
+                if st.button(
+                    "Alles aufdecken",
+                    disabled=not fog_enabled,
+                    key="fog_reveal_all",
+                    use_container_width=True,
+                ):
+                    st.session_state.fog_strokes = []
+                    st.session_state.fog_base_revealed = True
+                    st.session_state.fog_revision += 1
             pins = image_pin_board(
                 image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
                 image_type=st.session_state.get("display_image_type", "image/png"),
@@ -633,10 +807,19 @@ def render_image_mode():
                 pins_revision=st.session_state.image_pins_revision,
                 selected_label=selected_pin_label,
                 show_pin_details=show_pin_details,
+                fog_enabled=fog_enabled,
+                fog_mode=fog_mode,
+                fog_brush_size=fog_brush_size,
+                fog_strokes=st.session_state.fog_strokes,
+                fog_base_revealed=st.session_state.fog_base_revealed,
+                fog_revision=st.session_state.fog_revision,
                 key=f"image_pin_board_{st.session_state.image_pin_component_key}",
                 default={
                     "revision": st.session_state.image_pins_revision,
                     "pins": st.session_state.image_pins,
+                    "fog_revision": st.session_state.fog_revision,
+                    "fog_strokes": st.session_state.fog_strokes,
+                    "fog_base_revealed": st.session_state.fog_base_revealed,
                 },
             )
             if isinstance(pins, dict) and isinstance(pins.get("pins"), list):
@@ -644,19 +827,351 @@ def render_image_mode():
                 if isinstance(revision, int) and revision >= st.session_state.image_pins_revision:
                     st.session_state.image_pins = pins["pins"]
                     st.session_state.image_pins_revision = revision
+                fog_revision = pins.get("fog_revision")
+                if isinstance(fog_revision, int) and fog_revision >= st.session_state.fog_revision:
+                    st.session_state.fog_strokes = pins.get("fog_strokes", [])
+                    st.session_state.fog_base_revealed = (
+                        pins.get("fog_base_revealed") is True
+                    )
+                    st.session_state.fog_revision = fog_revision
     else:
         st.info("Lade ein Bild hoch, um es hier groß anzuzeigen.")
 
 
+def render_map_generator() -> None:
+    builder_index = st.session_state.get("map_builder_index")
+    if builder_index is not None:
+        render_map_builder(
+            builder_index,
+            st.session_state.get("map_builder_collection", "generated_maps"),
+        )
+        return
+
+    st.subheader("Acht Karten für dein Abenteuer")
+    st.caption(
+        "Erzeuge acht zufällige Karten für deine Runde. Wähle ein Thema oder mische "
+        "Verlies, Wald, Höhle und Ruinen."
+    )
+    settings_column, _ = st.columns([1, 2])
+    with settings_column:
+        theme = st.selectbox(
+            "Thema",
+            ["Alle", "Verlies", "Wald", "Höhle", "Ruinen"],
+            help="Alle mischt die vier Schauplätze; ein einzelnes Thema füllt alle acht Karten.",
+            key="map_theme",
+        )
+        layout = st.selectbox(
+            "Wegeführung",
+            ["Zufällig", "Kreuzung"],
+            help="Bei Zufällig wird jede Karte unabhängig kurvig oder als Kreuzung aufgebaut.",
+            key="map_route_layout",
+        )
+        chunk_size = st.selectbox(
+            "Kartengröße",
+            CHUNK_SIZE_OPTIONS,
+            index=CHUNK_SIZE_OPTIONS.index(DEFAULT_CHUNK_SIZE),
+            format_func=lambda size: (
+                f"{size[0]}x{size[1]} Chunks"
+                + (" (Empfohlen)" if size == DEFAULT_CHUNK_SIZE else "")
+            ),
+            help="Bestimmt Breite und Höhe des Kartenrasters.",
+            key="map_chunk_size",
+        )
+        room_count = st.slider(
+            "Räume / Wegpunkte pro Karte",
+            min_value=3,
+            max_value=10,
+            value=5,
+            help="Legt die Anzahl der Räume im Verlies und der Wegpunkte in den anderen Karten fest.",
+            key="map_room_count",
+        )
+        room_shape = st.selectbox(
+            "Raumform im Verlies",
+            ["Gemischt", "Eckig", "Organisch"],
+            help="Bei Gemischt erhält jeder Raum zufällig eine eckige oder organische Form.",
+            key="map_room_shape",
+        )
+        corridor_width = st.slider(
+            "Wegbreite",
+            min_value=1,
+            max_value=3,
+            value=1,
+            help="Breite der Wege in Rasterfeldern.",
+            key="map_corridor_width",
+        )
+        branch_count = st.slider(
+            "Zusätzliche Abzweigungen",
+            min_value=0,
+            max_value=4,
+            value=2,
+            help="Bei Kreuzungen kommt die zentrale Querung zusätzlich zu diesen Abzweigungen hinzu.",
+            key="map_branch_count",
+        )
+        include_encounter_points = st.checkbox(
+            "Begegnungspunkte einzeichnen",
+            value=False,
+            help="Markiert Start, Begegnung, Gefahr und Schatz auf den Wegen bzw. in den Räumen.",
+            key="map_encounter_points",
+        )
+    if st.button("Acht neue Maps generieren", type="primary"):
+        st.session_state.generated_maps = generate_maps(
+            layout=layout,
+            room_count=room_count,
+            chunk_size=chunk_size,
+            theme=theme,
+            room_shape=room_shape,
+            branch_count=branch_count,
+            corridor_width=corridor_width,
+            include_encounter_points=include_encounter_points,
+        )
+
+    generated_maps = st.session_state.get("generated_maps", [])
+    saved_maps = st.session_state.get("saved_maps", [])
+    if not generated_maps and not saved_maps:
+        st.info("Generiere acht Maps, um mögliche Schauplätze für deine Runde zu sehen.")
+        return
+
+    if not generated_maps:
+        st.info("Generiere neue Maps, um weitere Schauplätze zu sehen.")
+
+    for index, map_data in enumerate(generated_maps):
+        if index % 4 == 0:
+            columns = st.columns(4, gap="medium")
+        with columns[index % 4]:
+            with st.container(border=True):
+                st.markdown(f"#### {map_data['title']}")
+                st.caption(
+                    f"{map_data['description']} · Wege: {map_data['layout']} · "
+                    f"Thema: {map_data['theme']}"
+                    + (
+                        f" · Begegnungspunkte: {len(map_data['encounter_points'])}"
+                        if map_data["encounter_points"]
+                        else ""
+                    )
+                )
+                svg_data = base64.b64encode(map_data["svg"].encode("utf-8")).decode(
+                    "ascii"
+                )
+                st.markdown(
+                    f'<img src="data:image/svg+xml;base64,{svg_data}" '
+                    'alt="Zufällig generierte Karte" '
+                    'style="display:block;width:100%;height:auto;border-radius:4px;">',
+                    unsafe_allow_html=True,
+                )
+                st.button(
+                    "Im Bildmodus öffnen",
+                    key=f"open_generated_map_{index}",
+                    use_container_width=True,
+                    on_click=load_map_in_image_mode,
+                    args=(map_data["svg"],),
+                )
+                st.button(
+                    "Baumodus",
+                    key=f"edit_generated_map_{index}",
+                    use_container_width=True,
+                    on_click=start_map_builder,
+                    args=(index,),
+                )
+                st.button(
+                    "Temporär speichern",
+                    key=f"save_generated_map_{index}",
+                    use_container_width=True,
+                    on_click=save_map_temporarily,
+                    args=(index,),
+                    help="Behält eine Kopie nur für diese Sitzung. Bei mehr als acht Karten wird die älteste ersetzt.",
+                )
+
+
+    if saved_maps:
+        st.divider()
+        st.subheader("Temporär gespeicherte Karten")
+        st.caption(
+            "Diese Karten bleiben nur in der aktuellen Sitzung verfügbar. Beim "
+            "Neuladen können sie verschwinden; spätestens beim Ende der Sitzung werden sie gelöscht. "
+            "Es werden maximal acht Karten behalten."
+        )
+        if st.button("Alle temporären Karten löschen", key="clear_saved_maps"):
+            clear_saved_maps()
+            st.rerun()
+        for index, map_data in enumerate(saved_maps):
+            with st.container(border=True):
+                st.markdown(f"#### {map_data['title']}")
+                st.caption(f"{map_data['description']} · {map_data['theme']}")
+                actions = st.columns(3)
+                actions[0].button(
+                    "Im Bildmodus öffnen",
+                    key=f"open_saved_map_{index}",
+                    use_container_width=True,
+                    on_click=load_map_in_image_mode,
+                    args=(map_data.get("builder_svg", map_data["svg"]),),
+                )
+                actions[1].button(
+                    "Baumodus",
+                    key=f"edit_saved_map_{index}",
+                    use_container_width=True,
+                    on_click=start_saved_map_builder,
+                    args=(index,),
+                )
+                actions[2].button(
+                    "Entfernen",
+                    key=f"remove_saved_map_{index}",
+                    use_container_width=True,
+                    on_click=remove_saved_map,
+                    args=(map_data["saved_id"],),
+                )
+
+
+def render_map_builder(
+    map_index: int,
+    collection_name: str = "generated_maps",
+) -> None:
+    map_data = st.session_state[collection_name][map_index]
+    st.subheader(f"Baumodus: {map_data['title']}")
+    st.caption(
+        "Ziehe Räume an eine neue Stelle und nutze den Griff unten rechts zum "
+        "Ändern der Größe. Wähle eine Dekoration und klicke auf die Karte, um "
+        "sie zu platzieren. Kisten, Fässer, Fackeln, Tische, Stühle, Betten, "
+        "Bücherregale und Teppiche lassen sich anschließend ziehen und "
+        "in 45-Grad-Schritten drehen und am Griff unten rechts größer oder "
+        "kleiner ziehen. Begegnungspunkte lassen sich verschieben, "
+        "umbenennen und entfernen. Mit „Raum: 4 Ecken setzen“ klickst du die "
+        "Raumecken der Reihe nach an; mit dem Tür-Werkzeug kannst du Türen an "
+        "Wänden hinzufügen oder entfernen. Mit dem Treppen-Werkzeug platzierst "
+        "oder entfernst du Treppenmarker in Räumen und Gebäuden. Die letzten fünf Bearbeitungsschritte "
+        "lassen sich rückgängig machen. Über „Dunkelheit“ kannst du die Karte "
+        "abdunkeln und den Bereich um gesetzte Lichtquellen sichtbar lassen; "
+        "deren Helligkeit passt du in der Gruppe „Auswahl bearbeiten“ an. "
+        "Für Wasser, Lava oder Gruben wählst du einen Geländetyp, setzt mehrere "
+        "Randpunkte und schließt die Fläche ab."
+    )
+    if not map_data["rooms"]:
+        st.info(
+            "Diese Karte hat keine vorgefertigten Räume. Du kannst mit „Raum: "
+            "4 Ecken setzen“ eigene Räume zeichnen und Dekorationen oder "
+            "Gebäude platzieren."
+        )
+
+    decoration_column, _ = st.columns([1, 2])
+    with decoration_column:
+        selected_decoration = st.selectbox(
+            "Dekoration zum Platzieren",
+            [
+                "Auswählen",
+                "Kiste",
+                "Fass",
+                "Fackel",
+                "Tisch",
+                "Stuhl",
+                "Bett",
+                "Bücherregal",
+                "Teppich",
+            ],
+            key="map_builder_decoration_type_v3",
+        )
+        selected_terrain_type = st.selectbox(
+            "Geländeart",
+            ["Wasser", "Lava", "Grube"],
+            key="map_builder_terrain_type",
+        )
+
+    builder_state = map_builder_component(
+        svg=map_data["svg"],
+        rooms=map_data["builder_rooms"],
+        encounter_points=map_data["builder_encounter_points"],
+        decorations=map_data["builder_decorations"],
+        custom_rooms=map_data["builder_custom_rooms"],
+        stairs=map_data["builder_stairs"],
+        lights=map_data["builder_lights"],
+        terrain=map_data["builder_terrain"],
+        darkness_enabled=map_data["builder_darkness_enabled"],
+        grid_visible=map_data["builder_grid_visible"],
+        coordinates_visible=map_data["builder_coordinates_visible"],
+        selected_id=map_data.get("builder_selected_id"),
+        selected_decoration=selected_decoration,
+        selected_terrain_type=selected_terrain_type,
+        revision=map_data["builder_revision"],
+        key=f"map_builder_{collection_name}_{map_index}",
+        default={
+            "svg": map_data.get("builder_svg", map_data["svg"]),
+            "rooms": map_data["builder_rooms"],
+            "encounter_points": map_data["builder_encounter_points"],
+            "decorations": map_data["builder_decorations"],
+            "custom_rooms": map_data["builder_custom_rooms"],
+            "stairs": map_data["builder_stairs"],
+            "lights": map_data["builder_lights"],
+            "terrain": map_data["builder_terrain"],
+            "darkness_enabled": map_data["builder_darkness_enabled"],
+            "grid_visible": map_data["builder_grid_visible"],
+            "coordinates_visible": map_data["builder_coordinates_visible"],
+            "selected_id": map_data.get("builder_selected_id"),
+            "revision": map_data["builder_revision"],
+        },
+    )
+    if isinstance(builder_state, dict):
+        if isinstance(builder_state.get("svg"), str):
+            map_data["builder_svg"] = builder_state["svg"]
+        if isinstance(builder_state.get("rooms"), list):
+            map_data["builder_rooms"] = builder_state["rooms"]
+        if isinstance(builder_state.get("encounter_points"), list):
+            map_data["builder_encounter_points"] = builder_state["encounter_points"]
+        if isinstance(builder_state.get("decorations"), list):
+            map_data["builder_decorations"] = builder_state["decorations"]
+        if isinstance(builder_state.get("custom_rooms"), list):
+            map_data["builder_custom_rooms"] = builder_state["custom_rooms"]
+        if isinstance(builder_state.get("stairs"), list):
+            map_data["builder_stairs"] = builder_state["stairs"]
+        if isinstance(builder_state.get("lights"), list):
+            map_data["builder_lights"] = builder_state["lights"]
+        if isinstance(builder_state.get("terrain"), list):
+            map_data["builder_terrain"] = builder_state["terrain"]
+        if isinstance(builder_state.get("darkness_enabled"), bool):
+            map_data["builder_darkness_enabled"] = builder_state["darkness_enabled"]
+        if isinstance(builder_state.get("grid_visible"), bool):
+            map_data["builder_grid_visible"] = builder_state["grid_visible"]
+        if isinstance(builder_state.get("coordinates_visible"), bool):
+            map_data["builder_coordinates_visible"] = builder_state["coordinates_visible"]
+        if isinstance(builder_state.get("revision"), int):
+            map_data["builder_revision"] = builder_state["revision"]
+        map_data["builder_selected_id"] = builder_state.get("selected_id")
+
+    action_columns = st.columns(3)
+    with action_columns[0]:
+        st.button(
+            "Zurück zu den Karten",
+            on_click=return_to_map_gallery,
+            use_container_width=True,
+        )
+    with action_columns[1]:
+        st.button(
+            "Temporär speichern",
+            key=f"save_built_map_{collection_name}_{map_index}",
+            on_click=save_map_temporarily,
+            args=(map_index, collection_name),
+            use_container_width=True,
+        )
+    with action_columns[2]:
+        st.button(
+            "Im Bildmodus öffnen",
+            key=f"open_built_map_{collection_name}_{map_index}",
+            on_click=load_map_in_image_mode,
+            args=(map_data.get("builder_svg", map_data["svg"]),),
+            type="primary",
+            use_container_width=True,
+        )
+
+
 mode = st.radio(
     "Modus",
-    ["Würfel-Modus", "Bild-Modus"],
+    ["Würfel-Modus", "Bild-Modus", "Map generierer"],
     horizontal=True,
     key="app_mode",
 )
 
 if mode == "Bild-Modus":
     render_image_mode()
+    st.stop()
+if mode == "Map generierer":
+    render_map_generator()
     st.stop()
 
 # Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
@@ -1001,6 +1516,110 @@ with empty_space:
                             0, min(boss["max_hp"], boss["current_hp"] + hp_delta)
                         )
                         st.rerun()
+
+    with st.container(key="initiative_tracker"):
+        st.subheader("Initiative")
+        initiative_combatants = ordered_combatants(
+            st.session_state.initiative_combatants
+        )
+        st.caption(
+            f"Runde {st.session_state.initiative_round}"
+            + (
+                f" · Am Zug: {next((combatant['name'] for combatant in initiative_combatants if combatant['id'] == st.session_state.initiative_active_id), 'Noch nicht gestartet')}"
+            )
+        )
+        with st.form("add_initiative_combatant_form", clear_on_submit=True):
+            combatant_name = st.text_input("Name")
+            add_columns = st.columns(2)
+            with add_columns[0]:
+                combatant_type = st.selectbox(
+                    "Teilnehmer",
+                    ["Spieler", "Gegner", "NSC"],
+                )
+            with add_columns[1]:
+                initiative_modifier = st.number_input(
+                    "Initiative-Modifikator",
+                    min_value=-20,
+                    max_value=20,
+                    value=0,
+                    step=1,
+                    help="Wird zum W20-Ergebnis addiert.",
+                )
+            add_combatant_submitted = st.form_submit_button(
+                "Hinzufügen & W20 würfeln",
+                type="primary",
+                use_container_width=True,
+                disabled=len(initiative_combatants) >= 30,
+            )
+        if add_combatant_submitted:
+            if not combatant_name.strip():
+                st.error("Bitte gib einen Namen ein.")
+            elif len(initiative_combatants) >= 30:
+                st.error("Der Initiative-Tracker kann höchstens 30 Teilnehmer verwalten.")
+            else:
+                roll = roll_initiative(int(initiative_modifier))
+                st.session_state.initiative_combatants.append(
+                    {
+                        "id": uuid.uuid4().hex,
+                        "name": combatant_name.strip(),
+                        "type": combatant_type,
+                        "modifier": int(initiative_modifier),
+                        "initiative": roll,
+                        "order": max(
+                            (
+                                combatant["order"]
+                                for combatant in st.session_state.initiative_combatants
+                            ),
+                            default=-1,
+                        ) + 1,
+                    }
+                )
+                st.rerun()
+
+        turn_controls = st.columns(2)
+        turn_controls[0].button(
+            "Nächster Zug",
+            key="initiative_next_turn",
+            type="primary",
+            use_container_width=True,
+            disabled=not initiative_combatants,
+            on_click=advance_initiative_turn,
+        )
+        turn_controls[1].button(
+            "Runde neu starten",
+            key="initiative_restart_round",
+            use_container_width=True,
+            disabled=not initiative_combatants,
+            on_click=restart_initiative_round,
+        )
+        if initiative_combatants:
+            for position, combatant in enumerate(initiative_combatants, start=1):
+                with st.container(border=True):
+                    row = st.columns([0.6, 3, 1, 0.8])
+                    row[0].write(f"**{position}.**")
+                    row[1].write(
+                        f"{'▶️ ' if combatant['id'] == st.session_state.initiative_active_id else ''}"
+                        f"{combatant['name']} · {combatant['type']}"
+                    )
+                    row[2].write(
+                        f"**{combatant['initiative']}**"
+                        f" ({combatant['modifier']:+d})"
+                    )
+                    row[3].button(
+                        "×",
+                        key=f"remove_initiative_{combatant['id']}",
+                        help=f"{combatant['name']} entfernen",
+                        on_click=remove_initiative_combatant,
+                        args=(combatant["id"],),
+                    )
+            st.button(
+                "Kampf zurücksetzen",
+                key="initiative_reset",
+                on_click=reset_initiative_tracker,
+                use_container_width=True,
+            )
+        else:
+            st.info("Füge Spieler, Gegner oder NSC hinzu, um die Zugreihenfolge zu starten.")
 
     # Aktive Status-Effekte verwalten.
     with st.container(key="effects_panel"):
