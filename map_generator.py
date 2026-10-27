@@ -5,11 +5,13 @@ import math
 import random
 from collections.abc import Callable
 
+# Diese Zahlen legen fest, wie groß die Karten und ihre Kästchen sind.
 CELL_SIZE = 40
 MAP_OPTION_COUNT = 8
 DEFAULT_CHUNK_SIZE = (25, 15)
 CHUNK_SIZE_OPTIONS = ((10, 10), (20, 20), DEFAULT_CHUNK_SIZE, (50, 50), (75, 75))
 
+# Jede Karte bekommt einen passenden Namen und einen kurzen Erklärungssatz.
 MAP_NAMES = {
     "Verlies": [
         "Die vergessene Gruft",
@@ -46,6 +48,7 @@ MapBuilder = Callable[
 ]
 
 
+# Diese Helfer malen Linien, Wege und andere kleine Kartenteile.
 def _grid(color: str, map_size: tuple[int, int], opacity: float = 0.28) -> str:
     width, height = map_size
     lines = [
@@ -69,6 +72,7 @@ def _polyline(points: list[tuple[int, int]]) -> str:
 
 
 def _distance_to_path(point: tuple[int, int], path: list[tuple[int, int]]) -> float:
+    # Prüft, wie weit ein Punkt vom Weg entfernt ist, damit Deko nicht im Weg liegt.
     px, py = point
     minimum = float("inf")
     for (x1, y1), (x2, y2) in zip(path, path[1:]):
@@ -95,6 +99,7 @@ def _route_paths(
     map_size: tuple[int, int],
     branch_count: int,
 ) -> tuple[list[tuple[int, int]], list[list[tuple[int, int]]]]:
+    # Erst wird der Hauptweg gebaut, danach kommen die kleinen Abzweigungen dazu.
     width, height = map_size
     main_path = [(0, rng.randint(round(height * 0.3), round(height * 0.7)))]
     center_index = (waypoint_count + 1) // 2
@@ -136,6 +141,7 @@ def _encounter_marker_svg(
     route: list[tuple[int, int]],
     map_size: tuple[int, int],
 ) -> tuple[str, list[dict[str, int | str]]]:
+    # Setzt Start, Begegnung, Gefahr und Schatz auf den Weg.
     if len(route) < 3:
         return "", []
 
@@ -190,6 +196,7 @@ def _dungeon(
     room_shape: str,
     corridor_width: int,
 ) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    # Baut ein Verlies mit Räumen, Gängen und optional runden Räumen.
     width, height = map_size
     room_centers, branches = _route_paths(
         rng,
@@ -291,6 +298,7 @@ def _forest(
     room_shape: str,
     corridor_width: int,
 ) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    # Baut einen Waldweg und stellt Bäume daneben.
     del room_shape
     width, height = map_size
     path, branches = _route_paths(rng, waypoint_count, layout, map_size, branch_count)
@@ -332,6 +340,7 @@ def _cave(
     room_shape: str,
     corridor_width: int,
 ) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    # Baut eine Höhle mit Wegen, Felsen und Kristallen.
     del room_shape
     width, height = map_size
     path, branches = _route_paths(rng, waypoint_count, layout, map_size, branch_count)
@@ -388,6 +397,7 @@ def _ruins(
     room_shape: str,
     corridor_width: int,
 ) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    # Baut Ruinen mit Wegen und alten Mauerstücken.
     del room_shape
     width, height = map_size
     path, branches = _route_paths(rng, waypoint_count, layout, map_size, branch_count)
@@ -431,6 +441,7 @@ _MAP_BUILDERS: dict[str, MapBuilder] = {
 }
 
 
+# Diese Hauptfunktion baut alle acht Karten mit den gewählten Einstellungen.
 def generate_maps(
     rng: random.Random | None = None,
     layout: str = "Zufällig",

@@ -5,12 +5,14 @@ from collections.abc import Sequence
 from typing import Any
 
 
+# Würfelt einen W20 und addiert den Bonus der Person.
 def roll_initiative(modifier: int, rng: random.Random | None = None) -> int:
     """Roll a d20 and add the combatant's initiative modifier."""
     roller = rng or random
     return roller.randint(1, 20) + modifier
 
 
+# Ordnet alle Personen: die höchste Zahl kommt zuerst.
 def ordered_combatants(
     combatants: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -21,6 +23,7 @@ def ordered_combatants(
     )
 
 
+# Findet heraus, wer als Nächstes dran ist und ob eine neue Runde beginnt.
 def next_turn(
     combatants: Sequence[dict[str, Any]],
     active_id: str | None,

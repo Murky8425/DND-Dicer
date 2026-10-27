@@ -16,7 +16,7 @@ from map_generator import (
 from initiative_tracker import next_turn, ordered_combatants, roll_initiative
 
 
-# Seitentitel und zentrale Einstellungen für Würfel, Farben und Effekte.
+# Hier startet die App und hier werden die zwei Karten-Werkzeuge geladen.
 st.set_page_config(page_title="DND Diceroller", page_icon="🎲", layout="wide")
 image_pin_board = components.declare_component(
     "image_pin_board", path=str(Path(__file__).parent / "image_pin_component")
@@ -25,6 +25,7 @@ map_builder_component = components.declare_component(
     "map_builder", path=str(Path(__file__).parent / "map_builder_component")
 )
 
+# Diese Listen sagen der App, welche Würfel, Farben und Effekte es gibt.
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
 MAX_BOSSES = 10
 ROLL_GLYPHS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%*+=?~^"
@@ -72,6 +73,7 @@ ELEMENTS = [
 ]
 
 
+# Kleine Helfer machen die Würfel und ihre Farben hübsch und lesbar.
 def readable_text_color(hex_color: str) -> str:
     """Wählt anhand der Helligkeit einer Würfelfarbe eine gut lesbare Textfarbe."""
     red, green, blue = (int(hex_color[index : index + 2], 16) for index in (1, 3, 5))
@@ -129,7 +131,7 @@ def die_shape_style(die_type: str) -> str:
     return shapes.get(die_type, "border-radius: 4px; width: 14px; height: 14px;")
 
 
-# Gestaltung der Streamlit-Oberfläche und der gerollten Würfel.
+# Hier wird das Aussehen der ganzen Seite festgelegt.
 st.markdown(
     """
     <style>
@@ -491,6 +493,7 @@ st.markdown(
 )
 @st.fragment(run_every="2s")
 def sync_theme_styles():
+    # Wenn Streamlit dunkel ist, ändern wir die passenden Farben mit.
     if st.context.theme.type == "dark":
         st.markdown(
             """
@@ -536,7 +539,7 @@ def sync_theme_styles():
 
 
 sync_theme_styles()
-# Spielzustand initialisieren und IDs für gespeicherte Gegner ergänzen.
+# Hier merkt sich die App, was während dieser Sitzung passiert.
 if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
 if "die_actions" not in st.session_state:
@@ -559,6 +562,7 @@ for boss in st.session_state.bosses:
     boss.setdefault("element", ELEMENTS[0])
 
 
+# Diese Funktionen reagieren auf Knöpfe und speichern kleine Änderungen.
 def save_die_color(color_id: str, widget_key: str) -> None:
     """Übernimmt eine geänderte Würfelfarbe in den gespeicherten Spielzustand."""
     st.session_state.die_colors[color_id] = st.session_state[widget_key]
@@ -598,6 +602,7 @@ def remove_boss(boss_id: str) -> None:
 
 
 def remove_initiative_combatant(combatant_id: str) -> None:
+    # Entfernt eine Person aus der Zugliste.
     st.session_state.initiative_combatants = [
         combatant
         for combatant in st.session_state.initiative_combatants
@@ -608,6 +613,7 @@ def remove_initiative_combatant(combatant_id: str) -> None:
 
 
 def advance_initiative_turn() -> None:
+    # Geht zur nächsten Person und zählt nach der letzten Person die Runde hoch.
     active_id, round_number = next_turn(
         st.session_state.initiative_combatants,
         st.session_state.initiative_active_id,
@@ -618,17 +624,20 @@ def advance_initiative_turn() -> None:
 
 
 def reset_initiative_tracker() -> None:
+    # Räumt die Zugliste komplett leer.
     st.session_state.initiative_combatants = []
     st.session_state.initiative_round = 1
     st.session_state.initiative_active_id = None
 
 
 def restart_initiative_round() -> None:
+    # Behält alle Personen, aber fängt wieder bei Runde eins an.
     st.session_state.initiative_round = 1
     st.session_state.initiative_active_id = None
 
 
 def load_map_in_image_mode(svg: str) -> None:
+    # Öffnet eine Karte im Bildmodus und löscht alte Markierungen.
     """Opens the selected generated map in the pin-enabled image mode."""
     st.session_state.display_image = svg.encode("utf-8")
     st.session_state.display_image_type = "image/svg+xml"
@@ -643,6 +652,7 @@ def load_map_in_image_mode(svg: str) -> None:
 
 
 def start_map_builder(map_index: int, collection_name: str = "generated_maps") -> None:
+    # Bereitet eine Karte für den Baumodus vor.
     """Opens a generated or temporarily saved map in the interactive builder."""
     map_data = st.session_state[collection_name][map_index]
     map_data.setdefault("builder_rooms", [dict(room) for room in map_data["rooms"]])
@@ -673,6 +683,7 @@ def save_map_temporarily(
     map_index: int,
     collection_name: str = "generated_maps",
 ) -> None:
+    # Macht eine Kopie, die nur für kurze Zeit in der Sitzung bleibt.
     saved_maps = st.session_state.setdefault("saved_maps", [])
     map_copy = copy.deepcopy(st.session_state[collection_name][map_index])
     map_copy["saved_id"] = uuid.uuid4().hex
@@ -682,6 +693,7 @@ def save_map_temporarily(
 
 
 def remove_saved_map(saved_id: str) -> None:
+    # Löscht eine einzelne gespeicherte Karte.
     st.session_state.saved_maps = [
         map_data
         for map_data in st.session_state.get("saved_maps", [])
@@ -690,6 +702,7 @@ def remove_saved_map(saved_id: str) -> None:
 
 
 def clear_saved_maps() -> None:
+    # Löscht alle gespeicherten Karten auf einmal.
     st.session_state.saved_maps = []
 
 
@@ -698,7 +711,7 @@ def return_to_map_gallery() -> None:
     st.session_state.map_builder_index = None
 
 
-# Kopfbereich und dreispaltiges Hauptlayout der App.
+# Hier beginnt der sichtbare Teil der Website mit Überschrift und Modi.
 st.markdown(
     """
     <header class="masthead">
@@ -714,6 +727,7 @@ st.markdown(
 
 @st.fragment
 def render_image_mode():
+    # Hier lädst du Bilder hoch, setzt Pins und deckst den Nebel auf.
     st.subheader("Bild anzeigen")
     upload_column, _ = st.columns([1, 1])
     with upload_column:
@@ -839,6 +853,7 @@ def render_image_mode():
 
 
 def render_map_generator() -> None:
+    # Hier stellst du den Kartengenerator ein und siehst die neuen Karten.
     builder_index = st.session_state.get("map_builder_index")
     if builder_index is not None:
         render_map_builder(
@@ -1025,6 +1040,7 @@ def render_map_builder(
     map_index: int,
     collection_name: str = "generated_maps",
 ) -> None:
+    # Hier kannst du Räume, Licht und Deko auf der Karte verändern.
     map_data = st.session_state[collection_name][map_index]
     st.subheader(f"Baumodus: {map_data['title']}")
     st.caption(
@@ -1174,7 +1190,7 @@ if mode == "Map generierer":
     render_map_generator()
     st.stop()
 
-# Würfel konfigurieren: Anzahl, Farbe und Aktionssymbol je Würfel festlegen.
+# Links suchst du Würfel aus und legst ihre Anzahl fest.
 controls, results, empty_space = st.columns([1, 2, 1], gap="large")
 with controls:
     with st.container(key="dice_selector_heading"):
@@ -1272,7 +1288,7 @@ with controls:
         disabled=total_count == 0,
     )
 
-# Bei einer Aktion würfeln und das Ergebnis für spätere Reruns sichern.
+# Wenn du auf den Würfel-Knopf drückst, würfelt die App hier.
 if roll_clicked:
     result_groups = []
     for die_type, count in counts.items():
@@ -1305,7 +1321,7 @@ if roll_clicked:
         "animation_id": uuid.uuid4().hex,
     }
 
-# Würfelergebnisse samt Einzelsummen und Gesamtsumme anzeigen.
+# In der Mitte siehst du die Würfel und ihre Ergebnisse.
 with results:
     st.subheader("Auswertung")
     if "last_roll" in st.session_state:
@@ -1371,7 +1387,7 @@ with results:
     else:
         st.info("Wähle links Würfel aus und starte deinen Wurf.")
 
-# Gegner-HP verwalten: Gegner anlegen, bearbeiten, heilen oder verletzen.
+# Rechts verwaltest du Gegner, Lebenspunkte und die Reihenfolge der Züge.
 with empty_space:
     with st.container(key="boss_hp_panel"):
         title_column, add_column = st.columns([4, 1], vertical_alignment="center")
