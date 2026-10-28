@@ -885,14 +885,14 @@ def render_map_generator() -> None:
     st.subheader("Acht Karten für dein Abenteuer")
     st.caption(
         "Erzeuge acht zufällige Karten für deine Runde. Wähle ein Thema oder mische "
-        "Verlies, Wald, Höhle und Ruinen."
+        "Verlies, Wald, Höhlenvarianten und Ruinen."
     )
     settings_column, _ = st.columns([1, 2])
     with settings_column:
         theme = st.selectbox(
             "Thema",
-            ["Alle", "Verlies", "Wald", "Höhle", "Ruinen"],
-            help="Alle mischt die vier Schauplätze; ein einzelnes Thema füllt alle acht Karten.",
+            ["Alle", "Verlies", "Wald", "Höhle", "Eishöhle", "Vulkanhöhle", "Pflanzenhöhle", "Ruinen"],
+            help="Alle mischt die Schauplätze; ein einzelnes Thema füllt alle acht Karten.",
             key="map_theme",
         )
         layout = st.selectbox(
@@ -1070,10 +1070,11 @@ def render_map_builder(
         "Bücherregale und Teppiche lassen sich anschließend ziehen und "
         "in 45-Grad-Schritten drehen und am Griff unten rechts größer oder "
         "kleiner ziehen. Begegnungspunkte lassen sich verschieben, "
-        "umbenennen und entfernen. Mit „Raum: 4 Ecken setzen“ klickst du die "
-        "Raumecken der Reihe nach an; mit dem Tür-Werkzeug kannst du Türen an "
+        "umbenennen und entfernen. Mit „Raum: freie Form zeichnen“ setzt du "
+        "mindestens drei Raumecken und schließt den Entwurf anschließend ab; "
+        "mit dem Tür-Werkzeug kannst du Türen an "
         "Wänden hinzufügen oder entfernen. Mit dem Treppen-Werkzeug platzierst "
-        "oder entfernst du Treppenmarker in Räumen und Gebäuden. Die letzten fünf Bearbeitungsschritte "
+        "oder entfernst du Treppenmarker in Räumen und Gebäuden. Die letzten 15 Bearbeitungsschritte "
         "lassen sich rückgängig machen. Über „Dunkelheit“ kannst du die Karte "
         "abdunkeln und den Bereich um gesetzte Lichtquellen sichtbar lassen; "
         "deren Helligkeit passt du in der Gruppe „Auswahl bearbeiten“ an. "
@@ -1083,7 +1084,7 @@ def render_map_builder(
     if not map_data["rooms"]:
         st.info(
             "Diese Karte hat keine vorgefertigten Räume. Du kannst mit „Raum: "
-            "4 Ecken setzen“ eigene Räume zeichnen und Dekorationen oder "
+            "freie Form zeichnen“ eigene Räume mit beliebig vielen Ecken anlegen und Dekorationen oder "
             "Gebäude platzieren."
         )
 

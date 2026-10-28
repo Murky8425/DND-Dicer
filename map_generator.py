@@ -28,6 +28,21 @@ MAP_NAMES = {
         "Tiefen unter dem Gebirge",
         "Die Echo-Grotte",
     ],
+    "Eishöhle": [
+        "Die Frostkammer",
+        "Der blaue Gletscherstollen",
+        "Die Halle der Eiszapfen",
+    ],
+    "Vulkanhöhle": [
+        "Die Glutkluft",
+        "Der Schlot der alten Bestie",
+        "Die Magmakammer",
+    ],
+    "Pflanzenhöhle": [
+        "Der grüne Schlund",
+        "Die Wurzelgrotte",
+        "Der Garten unter Stein",
+    ],
     "Ruinen": [
         "Der versunkene Tempel",
         "Ruinen von Dornwacht",
@@ -39,6 +54,9 @@ MAP_DESCRIPTIONS = {
     "Verlies": "Verbundene Kammern und steinerne Gänge",
     "Wald": "Ein verschlungener Pfad zwischen dichtem Gehölz",
     "Höhle": "Ein gewundener Gang durch die Felsen",
+    "Eishöhle": "Vereiste Gänge und scharfkantige Eisformationen",
+    "Vulkanhöhle": "Dunkle Felsen, heiße Schlote und glühende Lava",
+    "Pflanzenhöhle": "Ein überwucherter Pfad durch unterirdisches Grün",
     "Ruinen": "Ein alter Weg zwischen eingestürzten Mauern",
 }
 
@@ -339,18 +357,75 @@ def _cave(
     branch_count: int,
     room_shape: str,
     corridor_width: int,
+    variant: str = "Höhle",
 ) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
-    # Baut eine Höhle mit Wegen, Felsen und Kristallen.
+    # Baut Höhlenwege mit Felsen und zum Thema passenden Formationen.
     del room_shape
     width, height = map_size
-    path, branches = _route_paths(rng, waypoint_count, layout, map_size, branch_count)
+    volcano_center = None
+    lava_radii = None
+    if variant == "Vulkanhöhle":
+        center_x, center_y = width // 2, height // 2
+        lake_radius_x = max(28, round(min(width * 0.16, height * 0.20)))
+        lake_radius_y = max(28, round(min(height * 0.18, width * 0.18)))
+        ring_radius_x = lake_radius_x + CELL_SIZE * corridor_width // 2 + 24
+        ring_radius_y = lake_radius_y + CELL_SIZE * corridor_width // 2 + 24
+        ring_path = [
+            (
+                round(center_x + ring_radius_x * math.cos(-math.pi / 2 + 2 * math.pi * index / 64)),
+                round(center_y + ring_radius_y * math.sin(-math.pi / 2 + 2 * math.pi * index / 64)),
+            )
+            for index in range(65)
+        ]
+        road_y = ring_path[0][1]
+        path = [(0, road_y), *ring_path, (width, road_y)]
+        branches = []
+        for index in range(branch_count):
+            angle = 2 * math.pi * (index + 0.5) / branch_count
+            direction_x = math.cos(angle)
+            direction_y = math.sin(angle)
+            attach = (
+                round(center_x + ring_radius_x * direction_x),
+                round(center_y + ring_radius_y * direction_y),
+            )
+            edge_distances = []
+            if direction_x < 0:
+                edge_distances.append((0 - attach[0]) / direction_x)
+            elif direction_x > 0:
+                edge_distances.append((width - attach[0]) / direction_x)
+            if direction_y < 0:
+                edge_distances.append((0 - attach[1]) / direction_y)
+            elif direction_y > 0:
+                edge_distances.append((height - attach[1]) / direction_y)
+            distance = min(edge_distances)
+            endpoint = (
+                round(attach[0] + direction_x * distance),
+                round(attach[1] + direction_y * distance),
+            )
+            branches.append([attach, endpoint])
+        volcano_center = (center_x, center_y)
+        lava_radii = (lake_radius_x, lake_radius_y)
+    else:
+        path, branches = _route_paths(rng, waypoint_count, layout, map_size, branch_count)
     paths = [path, *branches]
     path_width = CELL_SIZE * corridor_width
+    styles = {
+        "Höhle": ("#343a3d", "#a0a9a5", "#24282a", "#746e5f", "#8c8069", "#6ba6a2", "#b8e4d8"),
+        "Eishöhle": ("#b8dce8", "#547b8a", "#537f91", "#d8f3fa", "#8bc9df", "#91dff2", "#f2fdff"),
+        "Vulkanhöhle": ("#382c2a", "#b77043", "#241d1c", "#71605a", "#f27a35", "#ed572d", "#ffc06c"),
+        "Pflanzenhöhle": ("#344b38", "#a9bd7a", "#1c3328", "#82704c", "#8aa75c", "#78a94e", "#c2d881"),
+    }
+    background, grid_color, path_edge, path_color, dash_color, feature_fill, feature_stroke = styles[variant]
 
     rocks = []
     for _ in range(48):
         x = rng.randint(20, width - 20)
         y = rng.randint(20, height - 20)
+        if volcano_center and lava_radii:
+            center_x, center_y = volcano_center
+            radius_x, radius_y = lava_radii
+            if ((x - center_x) / radius_x) ** 2 + ((y - center_y) / radius_y) ** 2 < 1:
+                continue
         if any(_distance_to_path((x, y), route) < path_width / 2 + 24 for route in paths):
             continue
         radius = rng.randint(8, 24)
@@ -363,28 +438,143 @@ def _cave(
     for _ in range(12):
         x = rng.randint(35, width - 35)
         y = rng.randint(35, height - 35)
+        if volcano_center and lava_radii:
+            center_x, center_y = volcano_center
+            radius_x, radius_y = lava_radii
+            if ((x - center_x) / radius_x) ** 2 + ((y - center_y) / radius_y) ** 2 < 1:
+                continue
         if any(_distance_to_path((x, y), route) < path_width / 2 + 10 for route in paths):
             continue
-        crystals.append(
-            f'<path d="M {x} {y + 13} L {x + 8} {y - 8} '
-            f'L {x + 15} {y + 13} Z" fill="#6ba6a2" stroke="#b8e4d8" '
-            'stroke-width="2" />'
+        feature_class = f'cave-feature {variant.lower()}-feature'
+        if variant == "Vulkanhöhle":
+            feature = (
+                f'<path class="{feature_class}" '
+                f'd="M {x} {y + 13} L {x + 4} {y - 7} L {x + 9} {y + 4} '
+                f'L {x + 14} {y - 13} L {x + 20} {y + 13} Z" '
+                f'fill="{feature_fill}" stroke="{feature_stroke}" stroke-width="3" />'
+            )
+        elif variant == "Pflanzenhöhle":
+            feature = (
+                f'<path class="{feature_class}" '
+                f'd="M {x + 7} {y + 14} Q {x - 8} {y - 2} {x + 5} {y - 9} '
+                f'Q {x + 13} {y - 1} {x + 7} {y + 14} '
+                f'M {x + 8} {y + 14} Q {x + 3} {y - 7} {x + 20} {y - 11} '
+                f'Q {x + 22} {y + 2} {x + 8} {y + 14} Z" '
+                f'fill="{feature_fill}" stroke="{feature_stroke}" stroke-width="2" />'
+            )
+        else:
+            feature = (
+                f'<path class="{feature_class}" '
+                f'd="M {x} {y + 13} L {x + 8} {y - 8} '
+                f'L {x + 15} {y + 13} Z" fill="{feature_fill}" '
+                f'stroke="{feature_stroke}" stroke-width="2" />'
+            )
+        crystals.append(feature)
+
+    volcanoes = []
+    lava_lake = ""
+    if volcano_center and lava_radii:
+        center_x, center_y = volcano_center
+        radius_x, radius_y = lava_radii
+        lava_lake = (
+            f'<ellipse class="volcano-lake" cx="{center_x}" cy="{center_y}" '
+            f'rx="{radius_x}" ry="{radius_y}" fill="#b8321d" '
+            'stroke="#ff9b3d" stroke-width="12" />'
+            f'<ellipse cx="{center_x}" cy="{center_y}" '
+            f'rx="{radius_x * 0.78:.1f}" ry="{radius_y * 0.72:.1f}" '
+            'fill="#f06424" opacity="0.92" />'
+            f'<path d="M {center_x - radius_x * 0.58:.1f} {center_y - radius_y * 0.12:.1f} '
+            f'Q {center_x - radius_x * 0.08:.1f} {center_y - radius_y * 0.55:.1f} '
+            f'{center_x + radius_x * 0.10:.1f} {center_y - radius_y * 0.08:.1f} '
+            f'Q {center_x + radius_x * 0.35:.1f} {center_y + radius_y * 0.20:.1f} '
+            f'{center_x + radius_x * 0.62:.1f} {center_y + radius_y * 0.05:.1f}" '
+            'fill="none" stroke="#ffc45b" stroke-width="8" stroke-linecap="round" />'
+        )
+        volcano_size = max(18, round(min(width, height) * 0.075))
+        inset = volcano_size * 1.4
+        volcano_x, volcano_y = rng.choice((
+            (inset, inset),
+            (width - inset, inset),
+            (inset, height - inset),
+            (width - inset, height - inset),
+        ))
+        volcanoes.append(
+            f'<g class="volcano-cone" transform="translate({volcano_x:.1f} {volcano_y:.1f})">'
+            f'<path d="M {-volcano_size} {volcano_size} L {-volcano_size * 0.28} {-volcano_size} '
+            f'L {volcano_size} {volcano_size} Z" fill="#292321" stroke="#100f0e" stroke-width="5" />'
+            f'<path d="M {-volcano_size * 0.62} {volcano_size * 0.28} '
+            f'L {-volcano_size * 0.20} {-volcano_size * 0.48} '
+            f'L {volcano_size * 0.62} {volcano_size * 0.28} Z" fill="#514039" />'
+            f'<path d="M {-volcano_size * 0.28} {-volcano_size} '
+            f'L {-volcano_size * 0.03} {-volcano_size * 0.70} '
+            f'L {volcano_size * 0.24} {-volcano_size}" fill="#ef5729" stroke="#ffb34e" stroke-width="4" />'
+            f'<ellipse cx="{-volcano_size * 0.28:.1f}" cy="{-volcano_size * 0.88:.1f}" '
+            f'rx="{volcano_size * 0.22:.1f}" ry="{volcano_size * 0.08:.1f}" '
+            'fill="#ff8a30" stroke="#ffc45b" stroke-width="3" />'
+            '</g>'
         )
 
     return (
-        f'<rect width="{width}" height="{height}" fill="#343a3d" />'
-        + _grid("#a0a9a5", map_size, 0.16)
-        + _path_svg(paths, "#24282a", path_width + 30)
-        + _path_svg(paths, "#746e5f", path_width)
+        f'<rect width="{width}" height="{height}" fill="{background}" />'
+        + _grid(grid_color, map_size, 0.16)
+        + lava_lake
+        + _path_svg(paths, path_edge, path_width + 30)
+        + _path_svg(paths, path_color, path_width)
         + "".join(
-            f'<polyline points="{_polyline(route)}" fill="none" stroke="#8c8069" '
+            f'<polyline points="{_polyline(route)}" fill="none" stroke="{dash_color}" '
             'stroke-width="4" stroke-dasharray="3 14" stroke-linecap="round" />'
             for route in paths
         )
         + "".join(rocks)
-        + "".join(crystals),
+        + "".join(crystals)
+        + "".join(volcanoes),
         [],
         path,
+    )
+
+
+def _ice_cave(
+    rng: random.Random,
+    waypoint_count: int,
+    layout: str,
+    map_size: tuple[int, int],
+    branch_count: int,
+    room_shape: str,
+    corridor_width: int,
+) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    return _cave(
+        rng, waypoint_count, layout, map_size, branch_count, room_shape,
+        corridor_width, "Eishöhle",
+    )
+
+
+def _volcano_cave(
+    rng: random.Random,
+    waypoint_count: int,
+    layout: str,
+    map_size: tuple[int, int],
+    branch_count: int,
+    room_shape: str,
+    corridor_width: int,
+) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    return _cave(
+        rng, waypoint_count, layout, map_size, branch_count, room_shape,
+        corridor_width, "Vulkanhöhle",
+    )
+
+
+def _plant_cave(
+    rng: random.Random,
+    waypoint_count: int,
+    layout: str,
+    map_size: tuple[int, int],
+    branch_count: int,
+    room_shape: str,
+    corridor_width: int,
+) -> tuple[str, list[dict[str, object]], list[tuple[int, int]]]:
+    return _cave(
+        rng, waypoint_count, layout, map_size, branch_count, room_shape,
+        corridor_width, "Pflanzenhöhle",
     )
 
 
@@ -437,6 +627,9 @@ _MAP_BUILDERS: dict[str, MapBuilder] = {
     "Verlies": _dungeon,
     "Wald": _forest,
     "Höhle": _cave,
+    "Eishöhle": _ice_cave,
+    "Vulkanhöhle": _volcano_cave,
+    "Pflanzenhöhle": _plant_cave,
     "Ruinen": _ruins,
 }
 
@@ -470,11 +663,12 @@ def generate_maps(
     if corridor_width not in {1, 2, 3}:
         raise ValueError("Die Wegbreite muss zwischen 1 und 3 Rasterfeldern liegen.")
     map_size = (chunk_size[0] * CELL_SIZE, chunk_size[1] * CELL_SIZE)
-    themes = (
-        list(_MAP_BUILDERS) * (MAP_OPTION_COUNT // len(_MAP_BUILDERS))
-        if theme == "Alle"
-        else [theme] * MAP_OPTION_COUNT
-    )
+    if theme == "Alle":
+        themes = list(_MAP_BUILDERS) * (MAP_OPTION_COUNT // len(_MAP_BUILDERS))
+        remaining_count = MAP_OPTION_COUNT - len(themes)
+        themes.extend(generator.sample(list(_MAP_BUILDERS), remaining_count))
+    else:
+        themes = [theme] * MAP_OPTION_COUNT
     generator.shuffle(themes)
     maps = []
     for theme in themes:

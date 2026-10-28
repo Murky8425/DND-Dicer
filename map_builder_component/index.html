@@ -85,7 +85,7 @@
     <script>
         const app = document.getElementById('app');
         const namespace = 'http://www.w3.org/2000/svg';
-        const MAX_UNDO_STEPS = 5;
+        const MAX_UNDO_STEPS = 15;
         const LIGHT_RADIUS = 180;
         const MAX_LIGHT_RADIUS = 1000;
         let currentRooms = [];
@@ -887,6 +887,30 @@
             sendState();
         }
 
+        function finishCustomRoom() {
+            const area = Math.abs(draftCorners.reduce((sum, corner, index) => {
+                const next = draftCorners[(index + 1) % draftCorners.length];
+                return sum + corner.x * next.y - next.x * corner.y;
+            }, 0)) / 2;
+            if (draftCorners.length < 3 || area < 1600 || !terrainPolygonIsValid(draftCorners)) {
+                builderMessage = 'Der Raum braucht mindestens drei Ecken, ausreichend Fläche und darf sich nicht überschneiden.';
+                render(svgRoot.__args, true);
+                return;
+            }
+            rememberUndo();
+            currentCustomRooms.push({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                corners: draftCorners.map(point => ({ ...point })),
+                doors: []
+            });
+            selectedId = currentCustomRooms[currentCustomRooms.length - 1].id;
+            activeTool = 'select';
+            draftCorners = [];
+            builderMessage = 'Raum mit Boden und Wänden erstellt.';
+            render(svgRoot.__args, true);
+            sendState();
+        }
+
         function toggleLightAt(point) {
             const existingIndex = currentLights.findIndex(
                 light => Math.hypot(light.x - point.x, light.y - point.y) < 30
@@ -1024,17 +1048,6 @@
                 const x = start.x + t * dx;
                 const y = start.y + t * dy;
                 return { distance: Math.hypot(point.x - x, point.y - y), t };
-            }
-
-            function segmentsIntersect(a, b, c, d) {
-                const orientation = (first, second, third) =>
-                    (second.x - first.x) * (third.y - first.y)
-                    - (second.y - first.y) * (third.x - first.x);
-                const firstSide = orientation(a, b, c);
-                const secondSide = orientation(a, b, d);
-                const thirdSide = orientation(c, d, a);
-                const fourthSide = orientation(c, d, b);
-                return firstSide * secondSide < 0 && thirdSide * fourthSide < 0;
             }
 
             function renderCustomRooms(overlay) {
@@ -1849,7 +1862,7 @@
             const hint = document.createElement('p');
             hint.className = 'builder-hint';
             hint.textContent = builderMessage || (activeTool === 'room'
-                ? `Klicke die vier Ecken des Raums der Reihe nach an (${draftCorners.length}/4).`
+                ? `Klicke mindestens drei Raumecken der Reihe nach an (${draftCorners.length}) und schließe den Raum anschließend ab.`
                 : activeTool === 'door'
                     ? 'Klicke nahe auf eine Wand, um dort eine Tür hinzuzufügen oder zu entfernen.'
                     : activeTool === 'stair'
@@ -1881,7 +1894,7 @@
             const selectedObjectTools = createToolGroup('Auswahl bearbeiten');
             const exportTools = createToolGroup('Export');
             [
-                { label: 'Raum: 4 Ecken setzen', tool: 'room' },
+                { label: 'Raum: freie Form zeichnen', tool: 'room' },
                 { label: 'Tür setzen / entfernen', tool: 'door' },
                 { label: 'Treppe setzen / entfernen', tool: 'stair' },
                 { label: 'Lichtquelle setzen / entfernen', tool: 'light' },
@@ -1900,7 +1913,7 @@
                     }
                     activeTool = tool === activeTool && tool !== 'select' ? 'select' : tool;
                     builderMessage = activeTool === 'room'
-                        ? 'Klicke vier Ecken in der gewünschten Reihenfolge an.'
+                        ? 'Klicke mindestens drei Ecken in der gewünschten Reihenfolge an.'
                         : activeTool === 'door'
                             ? 'Klicke nahe auf eine Wand, um dort eine Tür hinzuzufügen oder zu entfernen.'
                             : activeTool === 'light'
@@ -1918,6 +1931,23 @@
             finishTerrainButton.disabled = activeTool !== 'terrain' || draftTerrainPoints.length < 3;
             finishTerrainButton.addEventListener('click', finishTerrainArea);
             mapTools.append(finishTerrainButton);
+            const finishRoomButton = document.createElement('button');
+            finishRoomButton.type = 'button';
+            finishRoomButton.textContent = 'Raum abschließen';
+            finishRoomButton.disabled = activeTool !== 'room' || draftCorners.length < 3;
+            finishRoomButton.addEventListener('click', finishCustomRoom);
+            mapTools.append(finishRoomButton);
+            const cancelRoomButton = document.createElement('button');
+            cancelRoomButton.type = 'button';
+            cancelRoomButton.textContent = 'Raum-Entwurf verwerfen';
+            cancelRoomButton.disabled = activeTool !== 'room' || draftCorners.length === 0;
+            cancelRoomButton.addEventListener('click', () => {
+                draftCorners = [];
+                activeTool = 'select';
+                builderMessage = 'Raum-Entwurf verworfen.';
+                render(svgRoot.__args, true);
+            });
+            mapTools.append(cancelRoomButton);
             const cancelTerrainButton = document.createElement('button');
             cancelTerrainButton.type = 'button';
             cancelTerrainButton.textContent = 'Entwurf verwerfen';
@@ -2213,7 +2243,6 @@
             svgRoot.append(overlay);
             renderRooms(overlay);
             renderCustomRooms(overlay);
-            renderStairs(overlay);
             renderLights(overlay);
             renderDraftCorners(overlay);
             renderTerrainDraft(overlay);
@@ -2222,6 +2251,7 @@
                 drawDecoration(group, decoration);
                 overlay.append(group);
             });
+            renderStairs(overlay);
             renderEncounterPoints(overlay);
 
             svgRoot.addEventListener('click', event => {
@@ -2252,43 +2282,8 @@
                         x: Math.round(point.x),
                         y: Math.round(point.y)
                     });
-                    if (draftCorners.length === 4) {
-                        const area = Math.abs(draftCorners.reduce((sum, corner, index) => {
-                            const next = draftCorners[(index + 1) % draftCorners.length];
-                            return sum + corner.x * next.y - next.x * corner.y;
-                        }, 0)) / 2;
-                        const crossesItself = segmentsIntersect(
-                            draftCorners[0],
-                            draftCorners[1],
-                            draftCorners[2],
-                            draftCorners[3]
-                        ) || segmentsIntersect(
-                            draftCorners[1],
-                            draftCorners[2],
-                            draftCorners[3],
-                            draftCorners[0]
-                        );
-                        if (area >= 1600 && !crossesItself) {
-                            rememberUndo();
-                            currentCustomRooms.push({
-                                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                                corners: draftCorners,
-                                doors: []
-                            });
-                            selectedId = currentCustomRooms[currentCustomRooms.length - 1].id;
-                            activeTool = 'select';
-                            draftCorners = [];
-                            builderMessage = 'Raum mit Boden und Wänden erstellt.';
-                            render(svgRoot.__args, true);
-                            sendState();
-                        } else {
-                            draftCorners = [];
-                            builderMessage = 'Diese Eckpunkte ergeben keinen gültigen Raum. Bitte vier Ecken neu setzen.';
-                            render(svgRoot.__args, true);
-                        }
-                    } else {
-                        render(svgRoot.__args, true);
-                    }
+                    builderMessage = `Raumecke ${draftCorners.length} gesetzt.`;
+                    render(svgRoot.__args, true);
                     return;
                 }
                 const targetItem = event.target.closest('.builder-item');

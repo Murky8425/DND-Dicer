@@ -7,20 +7,21 @@ from map_generator import CHUNK_SIZE_OPTIONS, MAP_OPTION_COUNT, generate_maps
 
 # Diese Proben schauen, ob der Kartenmacher richtig arbeitet.
 class GenerateMapsTests(unittest.TestCase):
-    # Es müssen acht lesbare Karten aus vier verschiedenen Orten entstehen.
-    def test_generates_eight_valid_maps_across_four_scenes(self):
+    # Es müssen acht lesbare Karten aus allen verfügbaren Orten entstehen.
+    def test_generates_eight_valid_maps_across_all_scenes(self):
         maps = generate_maps(random.Random(12))
 
         self.assertEqual(len(maps), MAP_OPTION_COUNT)
         self.assertEqual(
             {map_data["theme"] for map_data in maps},
-            {"Verlies", "Wald", "Höhle", "Ruinen"},
+            {"Verlies", "Wald", "Höhle", "Eishöhle", "Vulkanhöhle", "Pflanzenhöhle", "Ruinen"},
         )
-        self.assertEqual(
-            {theme: sum(map_data["theme"] == theme for map_data in maps)
-             for theme in {"Verlies", "Wald", "Höhle", "Ruinen"}},
-            {"Verlies": 2, "Wald": 2, "Höhle": 2, "Ruinen": 2},
-        )
+        theme_counts = {
+            theme: sum(map_data["theme"] == theme for map_data in maps)
+            for theme in {map_data["theme"] for map_data in maps}
+        }
+        self.assertEqual(sum(theme_counts.values()), MAP_OPTION_COUNT)
+        self.assertEqual(sorted(theme_counts.values()), [1, 1, 1, 1, 1, 1, 2])
         for map_data in maps:
             root = ET.fromstring(map_data["svg"])
             self.assertEqual(root.tag, "{http://www.w3.org/2000/svg}svg")
@@ -83,6 +84,39 @@ class GenerateMapsTests(unittest.TestCase):
 
         self.assertEqual(len(maps), MAP_OPTION_COUNT)
         self.assertEqual({map_data["theme"] for map_data in maps}, {"Wald"})
+
+    def test_new_cave_themes_are_available_and_distinct(self):
+        for theme in ("Eishöhle", "Vulkanhöhle", "Pflanzenhöhle"):
+            with self.subTest(theme=theme):
+                maps = generate_maps(random.Random(18), theme=theme)
+
+                self.assertEqual(len(maps), MAP_OPTION_COUNT)
+                self.assertEqual({map_data["theme"] for map_data in maps}, {theme})
+                self.assertTrue(all(map_data["description"] for map_data in maps))
+                self.assertTrue(all(f'data-theme="{theme}"' in map_data["svg"] for map_data in maps))
+
+    def test_volcano_cave_has_lava_lake_ring_path_and_corner_volcanoes(self):
+        map_data = generate_maps(random.Random(29), theme="Vulkanhöhle")[0]
+        root = ET.fromstring(map_data["svg"])
+        namespace = {"svg": "http://www.w3.org/2000/svg"}
+
+        lake = root.find(".//svg:ellipse[@class='volcano-lake']", namespace)
+        volcanoes = root.findall(".//svg:g[@class='volcano-cone']", namespace)
+        roads = root.findall(".//svg:polyline", namespace)
+
+        self.assertIsNotNone(lake)
+        self.assertEqual((lake.get("cx"), lake.get("cy")), ("500", "300"))
+        self.assertEqual(len(volcanoes), 1)
+        volcano_position = tuple(
+            map(float, volcanoes[0].get("transform", "").removeprefix("translate(").removesuffix(")").split())
+        )
+        self.assertIn(volcano_position, {(63.0, 63.0), (937.0, 63.0), (63.0, 537.0), (937.0, 537.0)})
+        self.assertIsNotNone(roads[0])
+        main_road_points = roads[0].get("points", "").split()
+        self.assertTrue(main_road_points[0].startswith("0,"))
+        self.assertTrue(main_road_points[-1].startswith("1000,"))
+        self.assertEqual(main_road_points[1], main_road_points[-2])
+        self.assertEqual(len(roads), 3 * (1 + 2))
 
     # Begegnungspunkte sollen nur erscheinen, wenn man sie einschaltet.
     def test_encounter_points_are_optional_and_follow_the_map_routes(self):
