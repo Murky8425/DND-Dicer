@@ -211,6 +211,15 @@
                 room.setAttribute('stroke', '#353832');
                 room.setAttribute('stroke-width', '7');
             });
+            currentCustomRooms.forEach(room => {
+                const element = svgRoot.querySelector(
+                    `[data-custom-room-id="${room.id}"]`
+                );
+                if (!element) return;
+                const exportedRoom = element.cloneNode(true);
+                exportedRoom.querySelector('.builder-selection')?.remove();
+                exportRoot.append(exportedRoom);
+            });
             currentDecorations.forEach(decoration => {
                 const item = svgRoot.querySelector(
                     `[data-decoration-id="${decoration.id}"]`
@@ -220,15 +229,6 @@
                 exportedItem.querySelector('.builder-selection')?.remove();
                 exportedItem.querySelector('.builder-size-handle')?.remove();
                 exportRoot.append(exportedItem);
-            });
-            currentCustomRooms.forEach(room => {
-                const element = svgRoot.querySelector(
-                    `[data-custom-room-id="${room.id}"]`
-                );
-                if (!element) return;
-                const exportedRoom = element.cloneNode(true);
-                exportedRoom.querySelector('.builder-selection')?.remove();
-                exportRoot.append(exportedRoom);
             });
             const serialized = new XMLSerializer().serializeToString(exportRoot);
             window.parent.postMessage({

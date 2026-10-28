@@ -631,9 +631,14 @@ def reset_initiative_tracker() -> None:
 
 
 def restart_initiative_round() -> None:
-    # Behält alle Personen, aber fängt wieder bei Runde eins an.
+    # Beginnt Runde eins wieder mit der Person mit der höchsten Initiative.
+    active_id, _ = next_turn(
+        st.session_state.initiative_combatants,
+        None,
+        1,
+    )
     st.session_state.initiative_round = 1
-    st.session_state.initiative_active_id = None
+    st.session_state.initiative_active_id = active_id
 
 
 def load_map_in_image_mode(svg: str) -> None:
@@ -649,6 +654,20 @@ def load_map_in_image_mode(svg: str) -> None:
     st.session_state.image_pin_component_key = uuid.uuid4().hex
     st.session_state.image_upload_key = uuid.uuid4().hex
     st.session_state.app_mode = "Bild-Modus"
+
+
+def open_built_map_in_image_mode(
+    component_key: str,
+    fallback_svg: str,
+) -> None:
+    component_state = st.session_state.get(component_key)
+    svg = (
+        component_state.get("svg")
+        if isinstance(component_state, dict)
+        and isinstance(component_state.get("svg"), str)
+        else fallback_svg
+    )
+    load_map_in_image_mode(svg)
 
 
 def start_map_builder(map_index: int, collection_name: str = "generated_maps") -> None:
@@ -1091,6 +1110,7 @@ def render_map_builder(
             key="map_builder_terrain_type",
         )
 
+    builder_component_key = f"map_builder_{collection_name}_{map_index}"
     builder_state = map_builder_component(
         svg=map_data["svg"],
         rooms=map_data["builder_rooms"],
@@ -1108,7 +1128,7 @@ def render_map_builder(
         selected_decoration=selected_decoration,
         selected_terrain_type=selected_terrain_type,
         revision=map_data["builder_revision"],
-        key=f"map_builder_{collection_name}_{map_index}",
+        key=builder_component_key,
         default={
             "svg": map_data.get("builder_svg", map_data["svg"]),
             "rooms": map_data["builder_rooms"],
@@ -1174,8 +1194,11 @@ def render_map_builder(
         st.button(
             "Im Bildmodus öffnen",
             key=f"open_built_map_{collection_name}_{map_index}",
-            on_click=load_map_in_image_mode,
-            args=(map_data.get("builder_svg", map_data["svg"]),),
+            on_click=open_built_map_in_image_mode,
+            args=(
+                builder_component_key,
+                map_data.get("builder_svg", map_data["svg"]),
+            ),
             type="primary",
             use_container_width=True,
         )
