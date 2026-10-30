@@ -22,7 +22,14 @@
         .image-wrap img {
             display: block; width: 100%; max-width: 100%; height: auto;
         }
-        .pin-layer { position: absolute; inset: 0; pointer-events: none; }
+        .terrain-layer {
+            position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%;
+            overflow: visible; pointer-events: none;
+        }
+        .pin-layer {
+            position: absolute; z-index: 3; inset: 0; pointer-events: none;
+        }
+        .image-wrap.terrain-active .pin { pointer-events: none; }
         .fog-canvas {
             position: absolute; z-index: 2; inset: 0; display: block;
             width: 100%; height: 100%; touch-action: none;
@@ -88,6 +95,11 @@
         let fogBaseRevealed = false;
         let activeFogStroke = null;
         let fogResizeObserver = null;
+        let currentTerrain = [];
+        let currentTerrainDraft = [];
+        let currentTerrainRevision = 0;
+        let terrainEnabled = false;
+        let selectedTerrainType = 'Wasser';
         let selectedLabel = 'Monster';
 
         function sendPins() {
@@ -99,7 +111,10 @@
                     pins: currentPins,
                     fog_revision: ++currentFogRevision,
                     fog_strokes: currentFogStrokes,
-                    fog_base_revealed: fogBaseRevealed
+                    fog_base_revealed: fogBaseRevealed,
+                    terrain_revision: currentTerrainRevision,
+                    terrain: currentTerrain,
+                    terrain_draft: currentTerrainDraft
                 },
                 dataType: 'json'
             }, '*');
@@ -164,6 +179,84 @@
                 drawFogStroke(context, stroke, bounds.width, bounds.height);
             });
             context.globalCompositeOperation = 'source-over';
+        }
+
+        function renderTerrain(layer) {
+            const namespace = 'http://www.w3.org/2000/svg';
+            const settings = {
+                Wasser: { background: '#287ca8', stroke: '#b5e7ec' },
+                Lava: { background: '#c74420', stroke: '#ffd166' },
+                Grube: { background: '#282630', stroke: '#8b8791' },
+                Treibsand: { background: '#a98b4d', stroke: '#ead69b' }
+            };
+            layer.replaceChildren();
+            const definitions = document.createElementNS(namespace, 'defs');
+            Object.entries(settings).forEach(([type, colors]) => {
+                const pattern = document.createElementNS(namespace, 'pattern');
+                pattern.setAttribute('id', `image-terrain-${type}`);
+                pattern.setAttribute('width', '48');
+                pattern.setAttribute('height', '48');
+                pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+                const background = document.createElementNS(namespace, 'rect');
+                background.setAttribute('width', '48');
+                background.setAttribute('height', '48');
+                background.setAttribute('fill', colors.background);
+                pattern.append(background);
+                const marks = document.createElementNS(namespace, 'path');
+                marks.setAttribute('d', type === 'Wasser' || type === 'Treibsand'
+                    ? 'M -8 12 Q 2 4 12 12 T 32 12 T 52 12 M -8 36 Q 2 28 12 36 T 32 36 T 52 36'
+                    : type === 'Lava'
+                        ? 'M 5 5 L 20 12 L 15 22 L 30 30 L 25 43 M 40 0 L 35 12 L 45 18'
+                        : 'M 4 6 L 16 16 L 10 26 L 22 38 M 40 8 L 30 18 L 38 25 L 28 42');
+                marks.setAttribute('fill', 'none');
+                marks.setAttribute('stroke', colors.stroke);
+                marks.setAttribute('stroke-width', type === 'Lava' ? '3' : '2');
+                marks.setAttribute('stroke-linecap', 'round');
+                marks.setAttribute('stroke-linejoin', 'round');
+                pattern.append(marks);
+                definitions.append(pattern);
+            });
+            layer.append(definitions);
+
+            currentTerrain.forEach(area => {
+                const colors = settings[area.type] || settings.Wasser;
+                const polygon = document.createElementNS(namespace, 'polygon');
+                polygon.setAttribute('points', area.points
+                    .map(point => `${point.x * 1000},${point.y * 1000}`)
+                    .join(' '));
+                polygon.setAttribute('fill', `url(#image-terrain-${area.type})`);
+                polygon.setAttribute('stroke', colors.stroke);
+                polygon.setAttribute('stroke-width', '4');
+                polygon.setAttribute('stroke-linejoin', 'round');
+                layer.append(polygon);
+            });
+
+            if (currentTerrainDraft.length >= 2) {
+                const colors = settings[selectedTerrainType] || settings.Wasser;
+                const draft = document.createElementNS(namespace,
+                    currentTerrainDraft.length >= 3 ? 'polygon' : 'polyline');
+                draft.setAttribute('points', currentTerrainDraft
+                    .map(point => `${point.x * 1000},${point.y * 1000}`)
+                    .join(' '));
+                draft.setAttribute('fill', currentTerrainDraft.length >= 3
+                    ? colors.background
+                    : 'none');
+                draft.setAttribute('stroke', '#fff');
+                draft.setAttribute('stroke-width', '4');
+                draft.setAttribute('stroke-dasharray', '9 6');
+                draft.setAttribute('stroke-linejoin', 'round');
+                layer.append(draft);
+            }
+            currentTerrainDraft.forEach(point => {
+                const marker = document.createElementNS(namespace, 'circle');
+                marker.setAttribute('cx', point.x * 1000);
+                marker.setAttribute('cy', point.y * 1000);
+                marker.setAttribute('r', '7');
+                marker.setAttribute('fill', '#bd573d');
+                marker.setAttribute('stroke', '#fff');
+                marker.setAttribute('stroke-width', '2');
+                layer.append(marker);
+            });
         }
 
         function updateHeight() {
@@ -306,6 +399,18 @@
                 fogBaseRevealed = args.fog_base_revealed === true;
                 currentFogRevision = incomingFogRevision;
             }
+            const incomingTerrainRevision = Number.isInteger(args.terrain_revision)
+                ? args.terrain_revision
+                : 0;
+            if (incomingTerrainRevision >= currentTerrainRevision) {
+                currentTerrain = Array.isArray(args.terrain) ? args.terrain : [];
+                currentTerrainDraft = Array.isArray(args.terrain_draft)
+                    ? args.terrain_draft
+                    : [];
+                currentTerrainRevision = incomingTerrainRevision;
+            }
+            terrainEnabled = args.terrain_enabled === true && args.fog_enabled !== true;
+            selectedTerrainType = args.selected_terrain_type || 'Wasser';
             selectedLabel = args.selected_label || 'Monster';
             const showPinDetails = args.show_pin_details !== false;
             const fogEnabled = args.fog_enabled === true;
@@ -318,7 +423,9 @@
 
             const hint = document.createElement('p');
             hint.className = 'pin-hint';
-            hint.textContent = fogEnabled
+            hint.textContent = terrainEnabled
+                ? `Gelände zeichnen: Punkte für ${selectedTerrainType} setzen und die Fläche abschließen.`
+                : fogEnabled
                 ? `Nebel-Werkzeug: ${args.fog_mode || 'Aufdecken'}. Karte anklicken oder ziehen, um Bereiche zu bearbeiten.`
                 : `Bild anklicken, um einen Pin \u201e${selectedLabel}\u201c zu setzen.`;
             app.append(hint);
@@ -330,6 +437,16 @@
             const image = document.createElement('img');
             image.alt = 'Bild mit Monster- und Ortsmarkierungen';
             image.src = `data:${args.image_type || 'image/png'};base64,${args.image_data}`;
+            const terrainLayer = document.createElementNS(
+                'http://www.w3.org/2000/svg',
+                'svg'
+            );
+            terrainLayer.classList.add('terrain-layer');
+            terrainLayer.setAttribute('viewBox', '0 0 1000 1000');
+            terrainLayer.setAttribute('preserveAspectRatio', 'none');
+            terrainLayer.setAttribute('aria-hidden', 'true');
+            imageWrap.classList.toggle('terrain-active', terrainEnabled);
+            renderTerrain(terrainLayer);
             const layer = document.createElement('div');
             layer.className = 'pin-layer';
             const fogCanvas = document.createElement('canvas');
@@ -384,14 +501,27 @@
             imageWrap.addEventListener('click', event => {
                 if (fogEnabled) return;
                 if (event.target.closest('.pin')) return;
-                const bounds = image.getBoundingClientRect();
-                if (!bounds.width || !bounds.height) return;
-                const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-                const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+                const point = normalizedPoint(event, image);
+                if (!point) return;
+                if (terrainEnabled) {
+                    if (currentTerrainDraft.length >= 100) return;
+                    const roundedPoint = {
+                        x: Math.round(point.x * 10000) / 10000,
+                        y: Math.round(point.y * 10000) / 10000
+                    };
+                    if (currentTerrainDraft.some(existing => (
+                        Math.hypot(existing.x - roundedPoint.x, existing.y - roundedPoint.y) < 0.008
+                    ))) return;
+                    currentTerrainDraft = [...currentTerrainDraft, roundedPoint];
+                    currentTerrainRevision += 1;
+                    renderTerrain(terrainLayer);
+                    sendPins();
+                    return;
+                }
                 currentPins = [...currentPins, {
                     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    x,
-                    y,
+                    x: point.x,
+                    y: point.y,
                     label: selectedLabel
                 }];
                 renderPins(layer, image, showPinDetails);
@@ -407,7 +537,7 @@
                 hint.textContent = 'Das Bild konnte nicht geladen werden.';
                 updateHeight();
             });
-            imageWrap.append(image, layer, fogCanvas);
+            imageWrap.append(image, terrainLayer, layer, fogCanvas);
             shell.append(imageWrap);
             app.append(shell);
             fogResizeObserver = new ResizeObserver(() => renderFog(fogCanvas, image));

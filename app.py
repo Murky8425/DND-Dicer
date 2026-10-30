@@ -1,5 +1,6 @@
 import base64
 import copy
+import hashlib
 import random
 import uuid
 from pathlib import Path
@@ -651,6 +652,10 @@ def load_map_in_image_mode(svg: str) -> None:
     st.session_state.fog_strokes = []
     st.session_state.fog_base_revealed = False
     st.session_state.fog_revision = st.session_state.get("fog_revision", 0) + 1
+    st.session_state.image_terrain = []
+    st.session_state.image_terrain_draft = []
+    st.session_state.image_terrain_revision = 0
+    st.session_state.image_terrain_enabled = False
     st.session_state.image_pin_component_key = uuid.uuid4().hex
     st.session_state.image_upload_key = uuid.uuid4().hex
     st.session_state.app_mode = "Bild-Modus"
@@ -680,6 +685,7 @@ def start_map_builder(map_index: int, collection_name: str = "generated_maps") -
         [dict(point) for point in map_data.get("encounter_points", [])],
     )
     map_data.setdefault("builder_decorations", [])
+    map_data.setdefault("builder_custom_decorations", [])
     map_data.setdefault("builder_custom_rooms", [])
     map_data.setdefault("builder_stairs", [])
     map_data.setdefault("builder_lights", [])
@@ -766,6 +772,10 @@ def render_image_mode():
             st.session_state.fog_strokes = []
             st.session_state.fog_base_revealed = False
             st.session_state.fog_revision = st.session_state.get("fog_revision", 0) + 1
+            st.session_state.image_terrain = []
+            st.session_state.image_terrain_draft = []
+            st.session_state.image_terrain_revision = 0
+            st.session_state.image_terrain_enabled = False
             st.session_state.image_pin_component_key = uuid.uuid4().hex
         st.session_state.display_image_type = uploaded_image.type or "image/png"
 
@@ -776,6 +786,9 @@ def render_image_mode():
         st.session_state.setdefault("fog_strokes", [])
         st.session_state.setdefault("fog_base_revealed", False)
         st.session_state.setdefault("fog_revision", 0)
+        st.session_state.setdefault("image_terrain", [])
+        st.session_state.setdefault("image_terrain_draft", [])
+        st.session_state.setdefault("image_terrain_revision", 0)
         with st.container(key="image_mode_preview"):
             selected_pin_label = st.selectbox(
                 "Pin-Beschriftung",
@@ -793,6 +806,7 @@ def render_image_mode():
                     "Nebel des Krieges",
                     value=False,
                     key="fog_enabled",
+                    disabled=st.session_state.get("image_terrain_enabled", False),
                     help="Verdeckt die Karte. Aufgedeckte Bereiche bleiben sichtbar.",
                 )
             with fog_controls[1]:
@@ -834,6 +848,62 @@ def render_image_mode():
                     st.session_state.fog_strokes = []
                     st.session_state.fog_base_revealed = True
                     st.session_state.fog_revision += 1
+            terrain_controls = st.columns([1, 1])
+            with terrain_controls[0]:
+                terrain_enabled = st.toggle(
+                    "Gelände zeichnen",
+                    key="image_terrain_enabled",
+                    disabled=fog_enabled,
+                )
+            with terrain_controls[1]:
+                selected_terrain_type = st.selectbox(
+                    "Geländeart",
+                    ["Wasser", "Lava", "Grube", "Treibsand"],
+                    key="image_terrain_type",
+                    disabled=not terrain_enabled,
+                )
+            terrain_actions = st.columns(3)
+            with terrain_actions[0]:
+                if st.button(
+                    "Fläche abschließen",
+                    disabled=(not terrain_enabled or len(st.session_state.image_terrain_draft) < 3),
+                    key="image_terrain_finish",
+                    use_container_width=True,
+                ):
+                    points = st.session_state.image_terrain_draft
+                    area = abs(sum(
+                        point["x"] * points[(index + 1) % len(points)]["y"]
+                        - points[(index + 1) % len(points)]["x"] * point["y"]
+                        for index, point in enumerate(points)
+                    )) / 2
+                    if area < 0.001:
+                        st.warning("Die Gelände-Fläche braucht mindestens drei nicht auf einer Linie liegende Punkte.")
+                    else:
+                        st.session_state.image_terrain.append({
+                            "id": uuid.uuid4().hex,
+                            "type": selected_terrain_type,
+                            "points": points,
+                        })
+                        st.session_state.image_terrain_draft = []
+                        st.session_state.image_terrain_revision += 1
+            with terrain_actions[1]:
+                if st.button(
+                    "Entwurf verwerfen",
+                    disabled=not st.session_state.image_terrain_draft,
+                    key="image_terrain_cancel",
+                    use_container_width=True,
+                ):
+                    st.session_state.image_terrain_draft = []
+                    st.session_state.image_terrain_revision += 1
+            with terrain_actions[2]:
+                if st.button(
+                    "Letzte Fläche entfernen",
+                    disabled=not st.session_state.image_terrain,
+                    key="image_terrain_remove_last",
+                    use_container_width=True,
+                ):
+                    st.session_state.image_terrain.pop()
+                    st.session_state.image_terrain_revision += 1
             pins = image_pin_board(
                 image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
                 image_type=st.session_state.get("display_image_type", "image/png"),
@@ -847,6 +917,11 @@ def render_image_mode():
                 fog_strokes=st.session_state.fog_strokes,
                 fog_base_revealed=st.session_state.fog_base_revealed,
                 fog_revision=st.session_state.fog_revision,
+                terrain=st.session_state.image_terrain,
+                terrain_draft=st.session_state.image_terrain_draft,
+                terrain_revision=st.session_state.image_terrain_revision,
+                terrain_enabled=terrain_enabled,
+                selected_terrain_type=selected_terrain_type,
                 key=f"image_pin_board_{st.session_state.image_pin_component_key}",
                 default={
                     "revision": st.session_state.image_pins_revision,
@@ -854,6 +929,9 @@ def render_image_mode():
                     "fog_revision": st.session_state.fog_revision,
                     "fog_strokes": st.session_state.fog_strokes,
                     "fog_base_revealed": st.session_state.fog_base_revealed,
+                    "terrain": st.session_state.image_terrain,
+                    "terrain_draft": st.session_state.image_terrain_draft,
+                    "terrain_revision": st.session_state.image_terrain_revision,
                 },
             )
             if isinstance(pins, dict) and isinstance(pins.get("pins"), list):
@@ -868,6 +946,14 @@ def render_image_mode():
                         pins.get("fog_base_revealed") is True
                     )
                     st.session_state.fog_revision = fog_revision
+                terrain_revision = pins.get("terrain_revision")
+                if (
+                    isinstance(terrain_revision, int)
+                    and terrain_revision >= st.session_state.image_terrain_revision
+                ):
+                    st.session_state.image_terrain = pins.get("terrain", [])
+                    st.session_state.image_terrain_draft = pins.get("terrain_draft", [])
+                    st.session_state.image_terrain_revision = terrain_revision
     else:
         st.info("Lade ein Bild hoch, um es hier groß anzuzeigen.")
 
@@ -1078,7 +1164,7 @@ def render_map_builder(
         "lassen sich rückgängig machen. Über „Dunkelheit“ kannst du die Karte "
         "abdunkeln und den Bereich um gesetzte Lichtquellen sichtbar lassen; "
         "deren Helligkeit passt du in der Gruppe „Auswahl bearbeiten“ an. "
-        "Für Wasser, Lava oder Gruben wählst du einen Geländetyp, setzt mehrere "
+        "Für Wasser, Lava, Gruben oder Treibsand wählst du einen Geländetyp, setzt mehrere "
         "Randpunkte und schließt die Fläche ab."
     )
     if not map_data["rooms"]:
@@ -1090,6 +1176,39 @@ def render_map_builder(
 
     decoration_column, _ = st.columns([1, 2])
     with decoration_column:
+        custom_decorations = map_data.setdefault("builder_custom_decorations", [])
+        uploaded_decorations = st.file_uploader(
+            "PNG als Deko importieren",
+            type=["png"],
+            accept_multiple_files=True,
+            key=f"map_builder_custom_deco_{collection_name}_{map_index}",
+        )
+        st.caption("Maximal 1 MiB pro PNG und 12 Motive je Karte.")
+        for uploaded in uploaded_decorations or []:
+            image_bytes = uploaded.getvalue()
+            if len(image_bytes) > 1024 * 1024:
+                st.warning(f"{uploaded.name} ist größer als 1 MiB und wurde übersprungen.")
+                continue
+            if not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                st.warning(f"{uploaded.name} ist keine gültige PNG-Datei.")
+                continue
+            asset_id = hashlib.sha256(image_bytes).hexdigest()[:16]
+            if any(asset["id"] == asset_id for asset in custom_decorations):
+                continue
+            if len(custom_decorations) >= 12:
+                st.warning("Pro Karte können höchstens 12 PNG-Dekos verwendet werden.")
+                break
+            custom_decorations.append({
+                "id": asset_id,
+                "name": Path(uploaded.name).stem[:40],
+                "data_url": "data:image/png;base64,"
+                + base64.b64encode(image_bytes).decode("ascii"),
+            })
+
+        decoration_labels = {
+            f"custom:{asset['id']}": f"PNG: {asset['name']}"
+            for asset in custom_decorations
+        }
         selected_decoration = st.selectbox(
             "Dekoration zum Platzieren",
             [
@@ -1102,12 +1221,13 @@ def render_map_builder(
                 "Bett",
                 "Bücherregal",
                 "Teppich",
-            ],
+            ] + list(decoration_labels),
+            format_func=lambda value: decoration_labels.get(value, value),
             key="map_builder_decoration_type_v3",
         )
         selected_terrain_type = st.selectbox(
             "Geländeart",
-            ["Wasser", "Lava", "Grube"],
+            ["Wasser", "Lava", "Grube", "Treibsand"],
             key="map_builder_terrain_type",
         )
 
@@ -1117,6 +1237,7 @@ def render_map_builder(
         rooms=map_data["builder_rooms"],
         encounter_points=map_data["builder_encounter_points"],
         decorations=map_data["builder_decorations"],
+        custom_decorations=map_data["builder_custom_decorations"],
         custom_rooms=map_data["builder_custom_rooms"],
         stairs=map_data["builder_stairs"],
         lights=map_data["builder_lights"],

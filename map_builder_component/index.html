@@ -731,7 +731,8 @@
             const patternSettings = {
                 Wasser: { background: '#287ca8', stroke: '#b5e7ec' },
                 Lava: { background: '#c74420', stroke: '#ffd166' },
-                Grube: { background: '#282630', stroke: '#8b8791' }
+                Grube: { background: '#282630', stroke: '#8b8791' },
+                Treibsand: { background: '#a98b4d', stroke: '#ead69b' }
             };
             Object.entries(patternSettings).forEach(([type, colors]) => {
                 const pattern = createSvgElement('pattern', {
@@ -744,7 +745,7 @@
                     width: '48',
                     height: '48',
                     fill: colors.background,
-                    opacity: type === 'Grube' ? '0.9' : '0.78'
+                    opacity: '1'
                 }));
                 const marks = type === 'Wasser'
                     ? [
@@ -756,6 +757,12 @@
                             { tag: 'circle', attributes: { cx: '8', cy: '32', r: '3', fill: colors.stroke } },
                             { tag: 'circle', attributes: { cx: '38', cy: '38', r: '2', fill: colors.stroke } }
                         ]
+                        : type === 'Treibsand'
+                            ? [
+                                { tag: 'path', attributes: { d: 'M -8 12 Q 2 4 12 12 T 32 12 T 52 12 M -8 36 Q 2 28 12 36 T 32 36 T 52 36', fill: 'none' } },
+                                { tag: 'circle', attributes: { cx: '12', cy: '12', r: '3', fill: colors.stroke } },
+                                { tag: 'circle', attributes: { cx: '36', cy: '36', r: '3', fill: colors.stroke } }
+                            ]
                         : [
                             { tag: 'path', attributes: { d: 'M 4 6 L 16 16 L 10 26 L 22 38 M 40 8 L 30 18 L 38 25 L 28 42', fill: 'none' } }
                         ];
@@ -800,8 +807,10 @@
                         ? '#287ca8'
                         : selectedTerrainType === 'Lava'
                             ? '#c74420'
-                            : '#282630',
-                    'fill-opacity': '0.42',
+                            : selectedTerrainType === 'Treibsand'
+                                ? '#a98b4d'
+                                : '#282630',
+                    'fill-opacity': '1',
                     stroke: '#fff',
                     'stroke-width': '3',
                     'stroke-dasharray': '9 6',
@@ -1466,7 +1475,21 @@
             const scale = Number.isFinite(decoration.scale) ? decoration.scale : 1;
             graphic.setAttribute('transform', `scale(${scale})`);
 
-            if (decoration.type === 'Haus' || decoration.type === 'Hütte') {
+            if (decoration.type.startsWith('custom:')) {
+                const asset = (svgRoot.__args.custom_decorations || []).find(
+                    item => decoration.type === `custom:${item.id}`
+                );
+                if (asset) {
+                    graphic.append(createSvgElement('image', {
+                        x: '-24',
+                        y: '-24',
+                        width: '48',
+                        height: '48',
+                        href: asset.data_url,
+                        preserveAspectRatio: 'xMidYMid meet'
+                    }));
+                }
+            } else if (decoration.type === 'Haus' || decoration.type === 'Hütte') {
                 const isHut = decoration.type === 'Hütte';
                 const walls = document.createElementNS(namespace, 'rect');
                 walls.setAttribute('x', isHut ? '-27' : '-30');
@@ -1854,7 +1877,7 @@
                 selectedId = args.selected_id || null;
             }
             selectedDecoration = args.selected_decoration || 'Auswählen';
-            selectedTerrainType = ['Wasser', 'Lava', 'Grube'].includes(args.selected_terrain_type)
+            selectedTerrainType = ['Wasser', 'Lava', 'Grube', 'Treibsand'].includes(args.selected_terrain_type)
                 ? args.selected_terrain_type
                 : 'Wasser';
             app.replaceChildren();
