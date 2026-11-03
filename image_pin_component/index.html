@@ -285,10 +285,11 @@
             }, '*');
         }
 
-        function renderPins(layer, image, showPinDetails) {
+        function renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius) {
             layer.replaceChildren();
             currentPins.forEach((pin, index) => {
                 const isCombatantPin = Boolean(pin.combatant_id || pin.player_id);
+            const isPlayerPin = pin.combatant_type === 'Spieler';
                 const marker = document.createElement('div');
                 marker.className = 'pin';
                 marker.style.left = `${pin.x * 100}%`;
@@ -303,11 +304,18 @@
                 icon.append(iconText);
 
                 let dragStart = null;
+                let playerFogStroke = null;
                 icon.addEventListener('pointerdown', event => {
                     if (event.button !== 0) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    dragStart = { x: event.clientX, y: event.clientY, moved: false };
+                    dragStart = {
+                        x: event.clientX,
+                        y: event.clientY,
+                        pinX: pin.x,
+                        pinY: pin.y,
+                        moved: false
+                    };
                     icon.setPointerCapture(event.pointerId);
                 });
                 icon.addEventListener('pointermove', event => {
@@ -325,6 +333,31 @@
                     pin.y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
                     marker.style.left = `${pin.x * 100}%`;
                     marker.style.top = `${pin.y * 100}%`;
+                    if (isPlayerPin && fogEnabled) {
+                        if (!playerFogStroke) {
+                            playerFogStroke = {
+                                mode: 'reveal',
+                                radius: brushRadius,
+                                points: [{ x: dragStart.pinX, y: dragStart.pinY }]
+                            };
+                        }
+                        const prior = playerFogStroke.points[playerFogStroke.points.length - 1];
+                        if (
+                            Math.hypot(
+                                (pin.x - prior.x) * bounds.width,
+                                (pin.y - prior.y) * bounds.height
+                            ) >= 2
+                        ) {
+                            playerFogStroke.points.push({ x: pin.x, y: pin.y });
+                            renderFog(fogCanvas, image, false);
+                            drawFogStroke(
+                                fogCanvas.getContext('2d'),
+                                playerFogStroke,
+                                bounds.width,
+                                bounds.height
+                            );
+                        }
+                    }
                 });
                 const finishDrag = event => {
                     if (!dragStart || !icon.hasPointerCapture(event.pointerId)) return;
@@ -332,7 +365,20 @@
                     dragStart = null;
                     icon.releasePointerCapture(event.pointerId);
                     if (moved) {
-                        renderPins(layer, image, showPinDetails);
+                        if (playerFogStroke) {
+                            currentFogStrokes = [...currentFogStrokes, playerFogStroke]
+                                .slice(-MAX_FOG_STROKES);
+                            playerFogStroke = null;
+                            renderFog(fogCanvas, image);
+                        }
+                        renderPins(
+                            layer,
+                            image,
+                            showPinDetails,
+                            fogCanvas,
+                            fogEnabled,
+                            brushRadius
+                        );
                         sendPins();
                     }
                 };
@@ -370,7 +416,7 @@
                             editor.addEventListener('blur', () => {
                                 const nextLabel = editor.value.trim();
                                 if (saveChanges && nextLabel) pin.label = nextLabel;
-                                renderPins(layer, image, showPinDetails);
+                                renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius);
                                 if (saveChanges && nextLabel) sendPins();
                             }, { once: true });
                             label.replaceWith(editor);
@@ -394,7 +440,7 @@
                         remove.addEventListener('click', event => {
                             event.stopPropagation();
                             currentPins = currentPins.filter(item => item.id !== pin.id);
-                            renderPins(layer, image, showPinDetails);
+                            renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius);
                             sendPins();
                             updateHeight();
                         });
@@ -551,12 +597,12 @@
                     y: point.y,
                     label: selectedLabel
                 }];
-                renderPins(layer, image, showPinDetails);
+                renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius);
                 sendPins();
             });
 
             image.addEventListener('load', () => {
-                renderPins(layer, image, showPinDetails);
+                renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius);
                 renderFog(fogCanvas, image);
                 updateHeight();
             });
@@ -570,7 +616,7 @@
             fogResizeObserver = new ResizeObserver(() => renderFog(fogCanvas, image));
             fogResizeObserver.observe(imageWrap);
             if (image.complete && image.naturalWidth) {
-                renderPins(layer, image, showPinDetails);
+                renderPins(layer, image, showPinDetails, fogCanvas, fogEnabled, brushRadius);
                 renderFog(fogCanvas, image);
             }
             updateHeight();

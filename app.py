@@ -1,6 +1,7 @@
 import base64
 import copy
 import hashlib
+from html import escape
 import random
 import uuid
 from pathlib import Path
@@ -60,6 +61,23 @@ EFFECTS = [
     "Fasziniert",
     "Betäubt",
 ]
+EFFECT_DESCRIPTIONS = {
+    "Vergiftet": "Gift beeinträchtigt die Figur; mögliche Folgen hängen von der Quelle ab.",
+    "Müde": "Die Figur ist erschöpft; Ausmaß und Folgen hängen von der Ursache ab.",
+    "Ohnmächtig": "Die Figur ist bewusstlos und kann nicht aktiv handeln.",
+    "Kalt": "Die Figur ist Kälte ausgesetzt; konkrete Folgen sind hier nicht festgelegt.",
+    "Warm": "Die Figur ist Wärme oder Hitze ausgesetzt; konkrete Folgen sind hier nicht festgelegt.",
+    "Unter Zauber": "Ein Zauber wirkt auf die Figur; der konkrete Effekt hängt vom Zauber ab.",
+    "Polymorph": "Die Figur wurde magisch in eine andere Gestalt verwandelt.",
+    "Wildshape": "Die Figur nutzt ihre Tiergestalt.",
+    "Konzentration": "Die Figur hält einen Konzentrationszauber aufrecht.",
+    "Gelähmt": "Die Figur kann sich nicht oder nur stark eingeschränkt bewegen.",
+    "Gefangen": "Die Figur ist festgesetzt und kann sich nicht frei bewegen.",
+    "Verwirrt": "Die Figur ist desorientiert; ihr Verhalten kann beeinträchtigt sein.",
+    "Blindheit": "Die Figur kann nicht sehen.",
+    "Fasziniert": "Die Aufmerksamkeit der Figur ist gebunden; sie nimmt ihre Umgebung schlechter wahr.",
+    "Betäubt": "Die Figur ist benommen und kann vorübergehend nicht normal handeln.",
+}
 ELEMENTS = [
     "Feuer",
     "Eis",
@@ -666,11 +684,13 @@ def sync_combatant_pins() -> None:
         )
         if pin is not None:
             pin["label"] = combatant["name"]
+            pin["combatant_type"] = combatant["type"]
             continue
         synced_pins.append(
             {
                 "id": f"combatant-{combatant['id']}",
                 "combatant_id": combatant["id"],
+                "combatant_type": combatant["type"],
                 "x": 0.15 + (combatant_index % 5) * 0.08,
                 "y": 0.15 + (combatant_index // 5) * 0.08,
                 "label": combatant["name"],
@@ -1475,7 +1495,9 @@ with controls:
         if input_key not in st.session_state:
             st.session_state[input_key] = st.session_state[slider_key]
 
-        type_column, settings_column = st.columns([0.55, 3.35], gap="small")
+        type_column, settings_column, modifier_column = st.columns(
+            [0.55, 2.8, 0.55], gap="small"
+        )
         with type_column:
             st.markdown(f'<div class="type-label">{die_type}</div>', unsafe_allow_html=True)
         with settings_column:
@@ -1523,6 +1545,16 @@ with controls:
                                 label_visibility="collapsed",
                             )
                             st.session_state.die_actions[action_id] = selected_action
+        with modifier_column:
+            with st.popover("±", help=f"Modifikator für {die_type}"):
+                st.number_input(
+                    f"Modifikator {die_type}",
+                    min_value=-100,
+                    max_value=100,
+                    step=1,
+                    value=0,
+                    key=f"modifier_{die_type}",
+                )
 
         slider_column, input_column = st.columns([2, 1], gap="small")
         with slider_column:
@@ -1580,6 +1612,7 @@ if roll_clicked:
             {
                 "type": die_type,
                 "values": values,
+                "modifier": st.session_state.get(f"modifier_{die_type}", 0),
                 "colors": colors,
                 "actions": actions,
                 "scrambles": [
@@ -1654,7 +1687,17 @@ with results:
                         unsafe_allow_html=True,
                     )
                 die_index += 1
-        st.metric("Roll", sum(all_values))
+        applied_modifiers = [
+            f"{group['type']} {group['modifier']:+d}"
+            for group in result["groups"]
+            if group.get("modifier", 0) != 0
+        ]
+        if applied_modifiers:
+            st.caption("Modifikatoren: " + ", ".join(applied_modifiers))
+        st.metric(
+            "Roll",
+            sum(all_values) + sum(group.get("modifier", 0) for group in result["groups"]),
+        )
     else:
         st.info("Wähle links Würfel aus und starte deinen Wurf.")
 
@@ -1794,7 +1837,7 @@ with empty_space:
                     effect_column, remove_effect_column = st.columns([5, 1])
                     with effect_column:
                         st.markdown(
-                            f'<span class="effect-chip">{effect}</span>',
+                            f'<span class="effect-chip" title="{escape(EFFECT_DESCRIPTIONS.get(effect, effect), quote=True)}">{escape(effect)}</span>',
                             unsafe_allow_html=True,
                         )
                     with remove_effect_column:
