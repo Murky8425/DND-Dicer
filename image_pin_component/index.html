@@ -47,6 +47,22 @@
             transform: translate(-50%, -50%); cursor: grab; touch-action: none;
         }
         .pin-marker:active { cursor: grabbing; }
+        .pin-marker.is-selected {
+            border-color: #ffe28a;
+            box-shadow: 0 0 0 3px rgba(255, 226, 138, 0.42),
+                0 0 14px 7px rgba(255, 190, 55, 0.82);
+        }
+        .pin-marker.is-selected > span {
+            color: #fff7cf;
+            animation: pin-number-glow 900ms ease-in-out infinite alternate;
+        }
+        @keyframes pin-number-glow {
+            from { text-shadow: 0 0 3px #fff, 0 0 7px #ffd45c; }
+            to { text-shadow: 0 0 7px #fff, 0 0 15px #ffae00, 0 0 22px #ffae00; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .pin-marker.is-selected > span { animation: none; }
+        }
         .pin-caption {
             position: absolute; left: 15px; top: 0; display: flex;
             align-items: center; gap: 5px; transform: translateY(-50%);
@@ -60,6 +76,7 @@
             white-space: nowrap; cursor: text;
             box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.96), 0 2px 10px rgba(0, 0, 0, 0.28);
         }
+        .pin-label-player { cursor: default; }
         .pin-label:hover { border-color: #dfeaf2; background: #ffffff !important; }
         .pin-label-editor {
             width: min(180px, 48vw); min-width: 100px; padding: 6px 9px;
@@ -101,6 +118,7 @@
         let terrainEnabled = false;
         let selectedTerrainType = 'Wasser';
         let selectedLabel = 'Monster';
+        let selectedPinId = null;
 
         function sendPins() {
             window.parent.postMessage({
@@ -270,6 +288,7 @@
         function renderPins(layer, image, showPinDetails) {
             layer.replaceChildren();
             currentPins.forEach((pin, index) => {
+                const isCombatantPin = Boolean(pin.combatant_id || pin.player_id);
                 const marker = document.createElement('div');
                 marker.className = 'pin';
                 marker.style.left = `${pin.x * 100}%`;
@@ -277,6 +296,7 @@
 
                 const icon = document.createElement('span');
                 icon.className = 'pin-marker';
+                icon.classList.toggle('is-selected', pin.id === selectedPinId);
                 icon.setAttribute('aria-hidden', 'true');
                 const iconText = document.createElement('span');
                 iconText.textContent = String(index + 1);
@@ -321,58 +341,64 @@
 
                 marker.append(icon);
                 if (showPinDetails) {
-                    const label = document.createElement('button');
-                    label.className = 'pin-label';
-                    label.type = 'button';
-                    label.title = 'Zum Umbenennen anklicken';
+                    const label = document.createElement(isCombatantPin ? 'span' : 'button');
+                    label.className = isCombatantPin
+                        ? 'pin-label pin-label-player'
+                        : 'pin-label';
                     label.textContent = pin.label;
-                    label.addEventListener('click', event => {
-                        event.stopPropagation();
-                        const editor = document.createElement('input');
-                        editor.className = 'pin-label-editor';
-                        editor.type = 'text';
-                        editor.maxLength = 64;
-                        editor.value = pin.label;
-                        editor.setAttribute('aria-label', 'Pin umbenennen');
-                        let saveChanges = true;
-                        editor.addEventListener('keydown', keyEvent => {
-                            if (keyEvent.key === 'Enter') {
-                                keyEvent.preventDefault();
-                                editor.blur();
-                            } else if (keyEvent.key === 'Escape') {
-                                saveChanges = false;
-                                editor.blur();
-                            }
+                    if (!isCombatantPin) {
+                        label.type = 'button';
+                        label.title = 'Zum Umbenennen anklicken';
+                        label.addEventListener('click', event => {
+                            event.stopPropagation();
+                            const editor = document.createElement('input');
+                            editor.className = 'pin-label-editor';
+                            editor.type = 'text';
+                            editor.maxLength = 64;
+                            editor.value = pin.label;
+                            editor.setAttribute('aria-label', 'Pin umbenennen');
+                            let saveChanges = true;
+                            editor.addEventListener('keydown', keyEvent => {
+                                if (keyEvent.key === 'Enter') {
+                                    keyEvent.preventDefault();
+                                    editor.blur();
+                                } else if (keyEvent.key === 'Escape') {
+                                    saveChanges = false;
+                                    editor.blur();
+                                }
+                            });
+                            editor.addEventListener('blur', () => {
+                                const nextLabel = editor.value.trim();
+                                if (saveChanges && nextLabel) pin.label = nextLabel;
+                                renderPins(layer, image, showPinDetails);
+                                if (saveChanges && nextLabel) sendPins();
+                            }, { once: true });
+                            label.replaceWith(editor);
+                            editor.focus();
+                            editor.select();
                         });
-                        editor.addEventListener('blur', () => {
-                            const nextLabel = editor.value.trim();
-                            if (saveChanges && nextLabel) pin.label = nextLabel;
-                            renderPins(layer, image, showPinDetails);
-                            if (saveChanges && nextLabel) sendPins();
-                        }, { once: true });
-                        label.replaceWith(editor);
-                        editor.focus();
-                        editor.select();
-                    });
+                    }
 
                     const caption = document.createElement('span');
                     caption.className = 'pin-caption';
                     caption.append(label);
 
-                    const remove = document.createElement('button');
-                    remove.className = 'pin-remove';
-                    remove.type = 'button';
-                    remove.title = 'Pin entfernen';
-                    remove.setAttribute('aria-label', `${pin.label} entfernen`);
-                    remove.textContent = '\u00d7';
-                    caption.append(remove);
-                    remove.addEventListener('click', event => {
-                        event.stopPropagation();
-                        currentPins = currentPins.filter(item => item.id !== pin.id);
-                        renderPins(layer, image, showPinDetails);
-                        sendPins();
-                        updateHeight();
-                    });
+                    if (!isCombatantPin) {
+                        const remove = document.createElement('button');
+                        remove.className = 'pin-remove';
+                        remove.type = 'button';
+                        remove.title = 'Pin entfernen';
+                        remove.setAttribute('aria-label', `${pin.label} entfernen`);
+                        remove.textContent = '\u00d7';
+                        caption.append(remove);
+                        remove.addEventListener('click', event => {
+                            event.stopPropagation();
+                            currentPins = currentPins.filter(item => item.id !== pin.id);
+                            renderPins(layer, image, showPinDetails);
+                            sendPins();
+                            updateHeight();
+                        });
+                    }
                     marker.append(caption);
                 }
                 layer.append(marker);
@@ -412,6 +438,7 @@
             terrainEnabled = args.terrain_enabled === true && args.fog_enabled !== true;
             selectedTerrainType = args.selected_terrain_type || 'Wasser';
             selectedLabel = args.selected_label || 'Monster';
+            selectedPinId = args.selected_pin_id || null;
             const showPinDetails = args.show_pin_details !== false;
             const fogEnabled = args.fog_enabled === true;
             const fogMode = args.fog_mode === 'Verdecken' ? 'cover' : 'reveal';
@@ -452,11 +479,11 @@
             const fogCanvas = document.createElement('canvas');
             fogCanvas.className = 'fog-canvas';
             fogCanvas.style.display = fogEnabled ? 'block' : 'none';
-            fogCanvas.style.pointerEvents = fogEnabled ? 'auto' : 'none';
+            fogCanvas.style.pointerEvents = 'none';
             fogCanvas.setAttribute('aria-label', 'Nebel des Krieges');
             let drawingFog = false;
-            fogCanvas.addEventListener('pointerdown', event => {
-                if (!fogEnabled || event.button !== 0) return;
+            imageWrap.addEventListener('pointerdown', event => {
+                if (!fogEnabled || event.button !== 0 || event.target.closest('.pin')) return;
                 const point = normalizedPoint(event, image);
                 if (!point) return;
                 event.preventDefault();
@@ -467,11 +494,11 @@
                     radius: brushRadius,
                     points: [point]
                 };
-                fogCanvas.setPointerCapture(event.pointerId);
+                imageWrap.setPointerCapture(event.pointerId);
                 renderFog(fogCanvas, image, true);
             });
-            fogCanvas.addEventListener('pointermove', event => {
-                if (!drawingFog || !fogCanvas.hasPointerCapture(event.pointerId)) return;
+            imageWrap.addEventListener('pointermove', event => {
+                if (!drawingFog || !imageWrap.hasPointerCapture(event.pointerId)) return;
                 const point = normalizedPoint(event, image);
                 if (!point) return;
                 const prior = activeFogStroke.points[activeFogStroke.points.length - 1];
@@ -486,17 +513,17 @@
                 renderFog(fogCanvas, image, true);
             });
             const finishFogStroke = event => {
-                if (!drawingFog || !fogCanvas.hasPointerCapture(event.pointerId)) return;
+                if (!drawingFog || !imageWrap.hasPointerCapture(event.pointerId)) return;
                 drawingFog = false;
-                fogCanvas.releasePointerCapture(event.pointerId);
+                imageWrap.releasePointerCapture(event.pointerId);
                 currentFogStrokes = [...currentFogStrokes, activeFogStroke]
                     .slice(-MAX_FOG_STROKES);
                 activeFogStroke = null;
                 renderFog(fogCanvas, image);
                 sendPins();
             };
-            fogCanvas.addEventListener('pointerup', finishFogStroke);
-            fogCanvas.addEventListener('pointercancel', finishFogStroke);
+            imageWrap.addEventListener('pointerup', finishFogStroke);
+            imageWrap.addEventListener('pointercancel', finishFogStroke);
 
             imageWrap.addEventListener('click', event => {
                 if (fogEnabled) return;

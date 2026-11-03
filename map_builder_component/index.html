@@ -579,14 +579,24 @@
             if (!canPlaceDecoration(selectedDecoration)) return;
             const position = clampDecorationPosition(point);
             rememberUndo();
-            currentDecorations.push({
+            const decoration = {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 type: selectedDecoration,
                 ...position,
                 rotation: 0,
                 scale: 1
-            });
-            selectedId = currentDecorations[currentDecorations.length - 1].id;
+            };
+            currentDecorations.push(decoration);
+            if (decoration.type === 'Fackel') {
+                currentLights.push({
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    decorationId: decoration.id,
+                    ...position,
+                    brightness: 100,
+                    range: LIGHT_RADIUS
+                });
+            }
+            selectedId = decoration.id;
             render(svgRoot.__args, true);
             sendState();
         }
@@ -654,6 +664,122 @@
             currentLights.forEach(light => overlay.append(createLightMarker(light)));
         }
 
+        function obstacleShadowPoints(light, corners, width, height) {
+            let inside = false;
+            for (let index = 0, previous = corners.length - 1; index < corners.length; previous = index, index += 1) {
+                const current = corners[index];
+                const prior = corners[previous];
+                if ((current.y > light.y) !== (prior.y > light.y)
+                    && light.x < (prior.x - current.x) * (light.y - current.y) / (prior.y - current.y) + current.x) {
+                    inside = !inside;
+                }
+            }
+            if (inside) return [];
+
+            const extension = Math.hypot(width, height) * 2;
+            const shadowPoints = [...corners];
+            corners.forEach(corner => {
+                const dx = corner.x - light.x;
+                const dy = corner.y - light.y;
+                const distance = Math.hypot(dx, dy) || 1;
+                shadowPoints.push({
+                    x: corner.x + dx / distance * extension,
+                    y: corner.y + dy / distance * extension
+                });
+            });
+            return convexHull(shadowPoints);
+        }
+
+        function buildingShadowPoints(light, decoration, width, height) {
+            const localCorners = decoration.type === 'Turm'
+                ? [[-30, -45], [30, -45], [30, 25], [-30, 25]]
+                : decoration.type === 'Hütte'
+                    ? [[-34, -36], [34, -36], [34, 31], [-34, 31]]
+                    : [[-37, -40], [37, -40], [37, 32], [-37, 32]];
+            const rotation = (decoration.rotation || 0) * Math.PI / 180;
+            const scale = Number.isFinite(decoration.scale) ? decoration.scale : 1;
+            const corners = localCorners.map(([x, y]) => ({
+                x: decoration.x + scale * (x * Math.cos(rotation) - y * Math.sin(rotation)),
+                y: decoration.y + scale * (x * Math.sin(rotation) + y * Math.cos(rotation))
+            }));
+            return obstacleShadowPoints(light, corners, width, height);
+        }
+
+        function svgObstacleShadowPoints(light, obstacle, width, height) {
+            const isCircle = obstacle.tagName.toLowerCase() === 'circle';
+            const centerX = Number(obstacle.getAttribute('cx'));
+            const centerY = Number(obstacle.getAttribute('cy'));
+            const radiusX = Number(obstacle.getAttribute(isCircle ? 'r' : 'rx')) + 1.5;
+            const radiusY = Number(obstacle.getAttribute(isCircle ? 'r' : 'ry')) + 1.5;
+            if (![centerX, centerY, radiusX, radiusY].every(Number.isFinite)) return [];
+            const corners = Array.from({ length: 24 }, (_, index) => {
+                const angle = 2 * Math.PI * index / 24;
+                return {
+                    x: centerX + radiusX * Math.cos(angle),
+                    y: centerY + radiusY * Math.sin(angle)
+                };
+            });
+            return obstacleShadowPoints(light, corners, width, height);
+        }
+
+        function convexHull(points) {
+            points.sort((first, second) => first.x - second.x || first.y - second.y);
+            const cross = (origin, first, second) => (
+                (first.x - origin.x) * (second.y - origin.y)
+                - (first.y - origin.y) * (second.x - origin.x)
+            );
+            const lower = [];
+            points.forEach(point => {
+                while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+                    lower.pop();
+                }
+                lower.push(point);
+            });
+            const upper = [];
+            points.slice().reverse().forEach(point => {
+                while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+                    upper.pop();
+                }
+                upper.push(point);
+            });
+            return lower.slice(0, -1).concat(upper.slice(0, -1));
+        }
+
+        function wallShadowPoints(light, start, end, width, height) {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const length = Math.hypot(dx, dy) || 1;
+            const offsetX = -dy / length * 6;
+            const offsetY = dx / length * 6;
+            const wallCorners = [
+                { x: start.x + offsetX, y: start.y + offsetY },
+                { x: end.x + offsetX, y: end.y + offsetY },
+                { x: end.x - offsetX, y: end.y - offsetY },
+                { x: start.x - offsetX, y: start.y - offsetY }
+            ];
+            const extension = Math.hypot(width, height) * 2;
+            const shadowPoints = [...wallCorners];
+            wallCorners.forEach(corner => {
+                const rayX = corner.x - light.x;
+                const rayY = corner.y - light.y;
+                const distance = Math.hypot(rayX, rayY) || 1;
+                shadowPoints.push({
+                    x: corner.x + rayX / distance * extension,
+                    y: corner.y + rayY / distance * extension
+                });
+            });
+            return convexHull(shadowPoints);
+        }
+
+        function appendShadow(mask, points, clipId) {
+            if (!points.length) return;
+            mask.append(createSvgElement('polygon', {
+                points: points.map(point => `${point.x},${point.y}`).join(' '),
+                fill: '#fff',
+                'clip-path': `url(#${clipId})`
+            }));
+        }
+
         function renderLightingLayer() {
             svgRoot.querySelector('.builder-lighting-layer')?.remove();
             if (!darknessEnabled) return;
@@ -706,6 +832,68 @@
                 }));
             });
             mask.append(lightAreas);
+            currentLights.forEach((light, lightIndex) => {
+                if ((Number(light.brightness) || 0) <= 0) return;
+                const range = Number.isFinite(light.range) ? light.range : LIGHT_RADIUS;
+                const shadowClipId = `builder-light-shadow-clip-${lightIndex}`;
+                const shadowClip = createSvgElement('clipPath', {
+                    id: shadowClipId,
+                    clipPathUnits: 'userSpaceOnUse'
+                });
+                shadowClip.append(createSvgElement('circle', {
+                    cx: light.x,
+                    cy: light.y,
+                    r: range
+                }));
+                definitions.append(shadowClip);
+                currentDecorations
+                    .filter(decoration => ['Haus', 'Hütte', 'Turm'].includes(decoration.type))
+                    .forEach(decoration => {
+                        appendShadow(
+                            mask,
+                            buildingShadowPoints(light, decoration, width, height),
+                            shadowClipId
+                        );
+                    });
+                svgRoot.querySelectorAll('.tree-obstacle, .rock-obstacle').forEach(obstacle => {
+                    appendShadow(
+                        mask,
+                        svgObstacleShadowPoints(light, obstacle, width, height),
+                        shadowClipId
+                    );
+                });
+                currentCustomRooms.forEach(room => {
+                    room.corners.forEach((start, wallIndex) => {
+                        const end = room.corners[(wallIndex + 1) % room.corners.length];
+                        const door = (room.doors || []).find(item => item.wall === wallIndex);
+                        if (!door) {
+                            appendShadow(
+                                mask,
+                                wallShadowPoints(light, start, end, width, height),
+                                shadowClipId
+                            );
+                            return;
+                        }
+
+                        const wallLength = Math.hypot(end.x - start.x, end.y - start.y);
+                        const halfOpening = Math.min(18, 0.2 * wallLength);
+                        const tStart = Math.max(0, door.t - halfOpening / wallLength);
+                        const tEnd = Math.min(1, door.t + halfOpening / wallLength);
+                        if (tStart > 0) {
+                            appendShadow(mask, wallShadowPoints(light, start, {
+                                x: start.x + (end.x - start.x) * tStart,
+                                y: start.y + (end.y - start.y) * tStart
+                            }, width, height), shadowClipId);
+                        }
+                        if (tEnd < 1) {
+                            appendShadow(mask, wallShadowPoints(light, {
+                                x: start.x + (end.x - start.x) * tEnd,
+                                y: start.y + (end.y - start.y) * tEnd
+                            }, end, width, height), shadowClipId);
+                        }
+                    });
+                });
+            });
             definitions.append(mask);
             layer.append(definitions, createSvgElement('rect', {
                 x: '0',
@@ -1813,6 +2001,13 @@
                     });
                     decoration.x = position.x;
                     decoration.y = position.y;
+                    const attachedLight = currentLights.find(
+                        light => light.decorationId === decoration.id
+                    );
+                    if (attachedLight) {
+                        attachedLight.x = position.x;
+                        attachedLight.y = position.y;
+                    }
                     group.setAttribute(
                         'transform',
                         `translate(${decoration.x} ${decoration.y}) rotate(${decoration.rotation || 0})`
@@ -1830,6 +2025,7 @@
         }
 
         function render(args, preserveLocalState = false) {
+            let addedTorchLights = false;
             if (
                 !preserveLocalState
                 && Number.isInteger(args.revision)
@@ -1864,6 +2060,21 @@
                             : LIGHT_RADIUS
                     }))
                     : [];
+                currentDecorations.forEach(decoration => {
+                    if (
+                        decoration.type !== 'Fackel'
+                        || currentLights.some(light => light.decorationId === decoration.id)
+                    ) return;
+                    currentLights.push({
+                        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                        decorationId: decoration.id,
+                        x: decoration.x,
+                        y: decoration.y,
+                        brightness: 100,
+                        range: LIGHT_RADIUS
+                    });
+                    addedTorchLights = true;
+                });
                 currentTerrain = Array.isArray(args.terrain)
                     ? args.terrain.map(area => ({
                         ...area,
@@ -2085,10 +2296,14 @@
                 ? 'Lichtquelle auswählen'
                 : 'Noch keine Lichtquelle vorhanden';
             lightSelect.append(lightPlaceholder);
-            currentLights.forEach((light, index) => {
+            let torchNumber = 0;
+            let lightNumber = 0;
+            currentLights.forEach(light => {
                 const option = document.createElement('option');
                 option.value = light.id;
-                option.textContent = `Lichtquelle ${index + 1}`;
+                option.textContent = light.decorationId
+                    ? `Fackel ${++torchNumber}`
+                    : `Lichtquelle ${++lightNumber}`;
                 option.selected = light.id === selectedId;
                 lightSelect.append(option);
             });
@@ -2228,6 +2443,9 @@
             removeButton.addEventListener('click', () => {
                 if (selectedIsDecoration) {
                     rememberUndo();
+                    currentLights = currentLights.filter(
+                        light => light.decorationId !== selectedId
+                    );
                     currentDecorations = currentDecorations.filter(
                         decoration => decoration.id !== selectedId
                     );
@@ -2351,6 +2569,7 @@
             board.append(svgRoot);
             app.append(board);
             updateHeight();
+            if (addedTorchLights) sendState();
         }
 
         window.addEventListener('message', event => {

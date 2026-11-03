@@ -28,7 +28,7 @@ map_builder_component = components.declare_component(
 
 # Diese Listen sagen der App, welche Würfel, Farben und Effekte es gibt.
 PALETTE = ["#E76F51", "#2A9D8F", "#E9C46A", "#6C9A8B", "#F4A261"]
-MAX_BOSSES = 10
+MAX_COMBATANTS = 30
 ROLL_GLYPHS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%*+=?~^"
 ROLL_STEPS = 12
 DICE = {
@@ -188,7 +188,6 @@ st.markdown(
         display: inline-flex; align-items: center; min-height: 2.4rem;
         color: var(--forest); font-size: 0.9rem; font-weight: 700;
     }
-    .effects-panel-title { color: var(--forest); font-size: 1rem; font-weight: 700; }
     .st-key-boss_hp_panel {
         margin-bottom: 1rem; padding: 1rem;
         border: 1px solid rgba(25, 60, 50, 0.18);
@@ -252,27 +251,6 @@ st.markdown(
     }
     .st-key-boss_hp_panel [class*="st-key-delete_boss_"] button {
         width: 3rem; min-width: 3rem; height: 2.5rem; padding: 0;
-    }
-    .st-key-effects_panel {
-        padding: 1rem; border: 1px solid rgba(25, 60, 50, 0.18);
-        border-top: 3px solid var(--coral); border-radius: 6px;
-        background: var(--panel);
-        box-shadow: 0 8px 18px rgba(25, 60, 50, 0.05);
-    }
-    .st-key-effects_panel div[data-testid="stPopover"] {
-        display: inline-flex !important; width: auto !important;
-    }
-    .st-key-effects_panel div[data-testid="stPopover"] > div {
-        width: auto !important; max-width: none !important;
-    }
-    .st-key-effects_panel div[data-testid="stPopover"] button {
-        width: 2.2rem !important; min-width: 2.2rem; max-width: 2.2rem;
-        height: 2.2rem; min-height: 2.2rem; padding: 0;
-        border: 0; border-radius: 50%; background: var(--forest); color: #fff;
-        font-size: 1.35rem; line-height: 1;
-    }
-    .st-key-effects_panel div[data-testid="stPopover"] button:hover {
-        background: var(--forest-light); color: #fff;
     }
     .effect-chip {
         display: inline-flex; align-items: center; min-height: 1.9rem;
@@ -349,10 +327,6 @@ st.markdown(
     div.stButton > button[kind="primary"]:hover {
         background: var(--forest-light); border-color: var(--forest-light);
         color: #fff; transform: translateY(-1px);
-    }
-    [class*="st-key-add_effect_button"] button,
-    [class*="st-key-add_effect_button"] button * {
-        color: var(--app-text) !important;
     }
     .die {
         position: relative; width: min(100%, 112px); aspect-ratio: 1;
@@ -477,14 +451,12 @@ st.markdown(
         border-color: var(--forest-light) !important;
     }
     .st-key-boss_hp_panel div[data-testid="stPopover"] button,
-    .st-key-effects_panel div[data-testid="stPopover"] button,
     div.stButton > button[kind="primary"] {
         background: var(--panel) !important;
         border-color: var(--line) !important;
         color: var(--app-text) !important;
     }
     .st-key-boss_hp_panel div[data-testid="stPopover"] button:hover,
-    .st-key-effects_panel div[data-testid="stPopover"] button:hover,
     div.stButton > button[kind="primary"]:hover {
         background: var(--panel-soft) !important;
     }
@@ -545,8 +517,6 @@ if "die_colors" not in st.session_state:
     st.session_state.die_colors = {}
 if "die_actions" not in st.session_state:
     st.session_state.die_actions = {}
-if "active_effects" not in st.session_state:
-    st.session_state.active_effects = []
 if "bosses" not in st.session_state:
     st.session_state.bosses = []
 if "initiative_combatants" not in st.session_state:
@@ -561,6 +531,51 @@ for boss in st.session_state.bosses:
     boss.setdefault("id", uuid.uuid4().hex)
     boss.setdefault("token", 1)
     boss.setdefault("element", ELEMENTS[0])
+    boss.setdefault("type", "Gegner")
+    boss.setdefault("effects", [])
+for combatant in st.session_state.initiative_combatants:
+    if any(boss["id"] == combatant["id"] for boss in st.session_state.bosses):
+        continue
+    st.session_state.bosses.append(
+        {
+            "id": combatant["id"],
+            "name": combatant["name"],
+            "type": combatant.get("type", "NSC"),
+            "max_hp": 100,
+            "current_hp": 100,
+            "effects": [],
+        }
+    )
+for boss in st.session_state.bosses:
+    initiative = next(
+        (
+            combatant
+            for combatant in st.session_state.initiative_combatants
+            if combatant["id"] == boss["id"]
+        ),
+        None,
+    )
+    if initiative is None:
+        modifier = 0
+        st.session_state.initiative_combatants.append(
+            {
+                "id": boss["id"],
+                "name": boss["name"],
+                "type": boss["type"],
+                "modifier": modifier,
+                "initiative": roll_initiative(modifier),
+                "order": max(
+                    (
+                        combatant["order"]
+                        for combatant in st.session_state.initiative_combatants
+                    ),
+                    default=-1,
+                ) + 1,
+            }
+        )
+    else:
+        initiative["name"] = boss["name"]
+        initiative["type"] = boss["type"]
 
 
 # Diese Funktionen reagieren auf Knöpfe und speichern kleine Änderungen.
@@ -584,33 +599,102 @@ def sync_count_from_input(die_type: str) -> None:
     st.session_state[f"count_{die_type}"] = st.session_state[f"count_input_{die_type}"]
 
 
-def add_effect(effect_name: str) -> None:
-    """Fügt einen aktiven Effekt hinzu, sofern er noch nicht vorhanden ist."""
-    if effect_name not in st.session_state.active_effects:
-        st.session_state.active_effects.append(effect_name)
+def add_combatant_effect(combatant_id: str) -> None:
+    combatant = next(
+        (item for item in st.session_state.bosses if item["id"] == combatant_id),
+        None,
+    )
+    effect_name = st.session_state.get(f"effect_select_{combatant_id}")
+    if combatant and effect_name and effect_name not in combatant["effects"]:
+        combatant["effects"].append(effect_name)
 
 
-def remove_effect(effect_index: int) -> None:
-    """Entfernt einen aktiven Effekt anhand seiner Position in der Liste."""
-    del st.session_state.active_effects[effect_index]
+def remove_combatant_effect(combatant_id: str, effect_name: str) -> None:
+    combatant = next(
+        (item for item in st.session_state.bosses if item["id"] == combatant_id),
+        None,
+    )
+    if combatant and effect_name in combatant["effects"]:
+        combatant["effects"].remove(effect_name)
 
 
 def remove_boss(boss_id: str) -> None:
-    """Entfernt den Gegner mit der angegebenen ID aus der HP-Verwaltung."""
+    """Entfernt eine Figur samt HP-, Effekt- und Initiative-Daten."""
     st.session_state.bosses = [
         boss for boss in st.session_state.bosses if boss["id"] != boss_id
     ]
-
-
-def remove_initiative_combatant(combatant_id: str) -> None:
-    # Entfernt eine Person aus der Zugliste.
     st.session_state.initiative_combatants = [
         combatant
         for combatant in st.session_state.initiative_combatants
-        if combatant["id"] != combatant_id
+        if combatant["id"] != boss_id
     ]
-    if st.session_state.initiative_active_id == combatant_id:
+    if st.session_state.initiative_active_id == boss_id:
         st.session_state.initiative_active_id = None
+    sync_combatant_pins()
+
+
+def sync_combatant_pins() -> None:
+    """Hält automatisch erzeugte Bild-Pins mit allen Initiative-Figuren synchron."""
+    combatants = st.session_state.initiative_combatants
+    pins = st.session_state.setdefault("image_pins", [])
+    if not isinstance(pins, list):
+        pins = []
+    original_pins = copy.deepcopy(pins)
+    combatant_ids = {combatant["id"] for combatant in combatants}
+    synced_pins = []
+    seen_combatant_ids = set()
+    for pin in pins:
+        combatant_id = pin.get("combatant_id", pin.get("player_id"))
+        if combatant_id and combatant_id not in combatant_ids:
+            continue
+        if combatant_id:
+            if combatant_id in seen_combatant_ids:
+                continue
+            seen_combatant_ids.add(combatant_id)
+            pin["combatant_id"] = combatant_id
+            pin.pop("player_id", None)
+        synced_pins.append(pin)
+
+    for combatant_index, combatant in enumerate(combatants):
+        pin = next(
+            (
+                item
+                for item in synced_pins
+                if item.get("combatant_id") == combatant["id"]
+            ),
+            None,
+        )
+        if pin is not None:
+            pin["label"] = combatant["name"]
+            continue
+        synced_pins.append(
+            {
+                "id": f"combatant-{combatant['id']}",
+                "combatant_id": combatant["id"],
+                "x": 0.15 + (combatant_index % 5) * 0.08,
+                "y": 0.15 + (combatant_index // 5) * 0.08,
+                "label": combatant["name"],
+            }
+        )
+
+    if synced_pins != original_pins:
+        st.session_state.image_pins = synced_pins
+        st.session_state.image_pins_revision = (
+            st.session_state.get("image_pins_revision", 0) + 1
+        )
+    else:
+        st.session_state.setdefault("image_pins_revision", 0)
+    selected_pin_id = st.session_state.get("selected_image_pin_id")
+    if selected_pin_id and not any(pin["id"] == selected_pin_id for pin in synced_pins):
+        st.session_state.selected_image_pin_id = None
+
+
+def select_image_pin(pin_id: str) -> None:
+    st.session_state.selected_image_pin_id = pin_id
+
+
+def remove_initiative_combatant(combatant_id: str) -> None:
+    remove_boss(combatant_id)
 
 
 def advance_initiative_turn() -> None:
@@ -625,8 +709,7 @@ def advance_initiative_turn() -> None:
 
 
 def reset_initiative_tracker() -> None:
-    # Räumt die Zugliste komplett leer.
-    st.session_state.initiative_combatants = []
+    # Setzt nur den Rundenstatus zurück; Figuren bleiben in der HP-Verwaltung.
     st.session_state.initiative_round = 1
     st.session_state.initiative_active_id = None
 
@@ -649,6 +732,7 @@ def load_map_in_image_mode(svg: str) -> None:
     st.session_state.display_image_type = "image/svg+xml"
     st.session_state.image_pins = []
     st.session_state.image_pins_revision = 0
+    sync_combatant_pins()
     st.session_state.fog_strokes = []
     st.session_state.fog_base_revealed = False
     st.session_state.fog_revision = st.session_state.get("fog_revision", 0) + 1
@@ -782,6 +866,7 @@ def render_image_mode():
     if st.session_state.get("display_image") is not None:
         st.session_state.setdefault("image_pins", [])
         st.session_state.setdefault("image_pins_revision", 0)
+        sync_combatant_pins()
         st.session_state.setdefault("image_pin_component_key", uuid.uuid4().hex)
         st.session_state.setdefault("fog_strokes", [])
         st.session_state.setdefault("fog_base_revealed", False)
@@ -904,36 +989,72 @@ def render_image_mode():
                 ):
                     st.session_state.image_terrain.pop()
                     st.session_state.image_terrain_revision += 1
-            pins = image_pin_board(
-                image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
-                image_type=st.session_state.get("display_image_type", "image/png"),
-                pins=st.session_state.image_pins,
-                pins_revision=st.session_state.image_pins_revision,
-                selected_label=selected_pin_label,
-                show_pin_details=show_pin_details,
-                fog_enabled=fog_enabled,
-                fog_mode=fog_mode,
-                fog_brush_size=fog_brush_size,
-                fog_strokes=st.session_state.fog_strokes,
-                fog_base_revealed=st.session_state.fog_base_revealed,
-                fog_revision=st.session_state.fog_revision,
-                terrain=st.session_state.image_terrain,
-                terrain_draft=st.session_state.image_terrain_draft,
-                terrain_revision=st.session_state.image_terrain_revision,
-                terrain_enabled=terrain_enabled,
-                selected_terrain_type=selected_terrain_type,
-                key=f"image_pin_board_{st.session_state.image_pin_component_key}",
-                default={
-                    "revision": st.session_state.image_pins_revision,
-                    "pins": st.session_state.image_pins,
-                    "fog_revision": st.session_state.fog_revision,
-                    "fog_strokes": st.session_state.fog_strokes,
-                    "fog_base_revealed": st.session_state.fog_base_revealed,
-                    "terrain": st.session_state.image_terrain,
-                    "terrain_draft": st.session_state.image_terrain_draft,
-                    "terrain_revision": st.session_state.image_terrain_revision,
-                },
-            )
+            pin_layout = st.columns([4, 1], gap="medium")
+            with pin_layout[0]:
+                pins = image_pin_board(
+                    image_data=base64.b64encode(st.session_state.display_image).decode("ascii"),
+                    image_type=st.session_state.get("display_image_type", "image/png"),
+                    pins=st.session_state.image_pins,
+                    pins_revision=st.session_state.image_pins_revision,
+                    selected_pin_id=st.session_state.get("selected_image_pin_id"),
+                    selected_label=selected_pin_label,
+                    show_pin_details=show_pin_details,
+                    fog_enabled=fog_enabled,
+                    fog_mode=fog_mode,
+                    fog_brush_size=fog_brush_size,
+                    fog_strokes=st.session_state.fog_strokes,
+                    fog_base_revealed=st.session_state.fog_base_revealed,
+                    fog_revision=st.session_state.fog_revision,
+                    terrain=st.session_state.image_terrain,
+                    terrain_draft=st.session_state.image_terrain_draft,
+                    terrain_revision=st.session_state.image_terrain_revision,
+                    terrain_enabled=terrain_enabled,
+                    selected_terrain_type=selected_terrain_type,
+                    key=f"image_pin_board_{st.session_state.image_pin_component_key}",
+                    default={
+                        "revision": st.session_state.image_pins_revision,
+                        "pins": st.session_state.image_pins,
+                        "fog_revision": st.session_state.fog_revision,
+                        "fog_strokes": st.session_state.fog_strokes,
+                        "fog_base_revealed": st.session_state.fog_base_revealed,
+                        "terrain": st.session_state.image_terrain,
+                        "terrain_draft": st.session_state.image_terrain_draft,
+                        "terrain_revision": st.session_state.image_terrain_revision,
+                    },
+                )
+            with pin_layout[1]:
+                st.subheader("Figuren")
+                combatants = st.session_state.initiative_combatants
+                if not combatants:
+                    st.caption("Noch keine Figuren angelegt.")
+                for combatant in combatants:
+                    player_pin = next(
+                        (
+                            pin
+                            for pin in st.session_state.image_pins
+                            if pin.get("combatant_id", pin.get("player_id")) == combatant["id"]
+                        ),
+                        None,
+                    )
+                    if player_pin is None:
+                        continue
+                    pin_number = next(
+                        index + 1
+                        for index, pin in enumerate(st.session_state.image_pins)
+                        if pin["id"] == player_pin["id"]
+                    )
+                    selected = (
+                        st.session_state.get("selected_image_pin_id")
+                        == player_pin["id"]
+                    )
+                    st.button(
+                        f"{pin_number}. {combatant['name']} · {combatant['type']}",
+                        key=f"select_combatant_pin_{combatant['id']}",
+                        type="primary" if selected else "secondary",
+                        use_container_width=True,
+                        on_click=select_image_pin,
+                        args=(player_pin["id"],),
+                    )
             if isinstance(pins, dict) and isinstance(pins.get("pins"), list):
                 revision = pins.get("revision")
                 if isinstance(revision, int) and revision >= st.session_state.image_pins_revision:
@@ -1542,29 +1663,21 @@ with empty_space:
     with st.container(key="boss_hp_panel"):
         title_column, add_column = st.columns([4, 1], vertical_alignment="center")
         with title_column:
-            st.markdown('<div class="boss-panel-title">Gegner-HP</div>', unsafe_allow_html=True)
-            st.caption(f"{len(st.session_state.bosses)} / {MAX_BOSSES} HP-Leisten")
+            st.markdown('<div class="boss-panel-title">Gegner & Spieler HP</div>', unsafe_allow_html=True)
+            st.caption(f"{len(st.session_state.bosses)} / {MAX_COMBATANTS} Figuren")
         with add_column:
             with st.popover(
                 "+",
                 use_container_width=False,
-                disabled=len(st.session_state.bosses) >= MAX_BOSSES,
+                disabled=len(st.session_state.bosses) >= MAX_COMBATANTS,
             ):
+                new_combatant_type = st.selectbox(
+                    "Figur",
+                    ["Spieler", "Gegner", "NSC"],
+                    key="new_hp_combatant_type",
+                )
                 with st.form("add_boss_form", clear_on_submit=True):
-                    new_boss_name = st.text_input("Name des Gegners", key="new_boss_name")
-                    new_boss_element = st.selectbox(
-                        "Element",
-                        ELEMENTS,
-                        key="new_boss_element",
-                    )
-                    new_boss_token = st.number_input(
-                        "Monstertoken",
-                        min_value=1,
-                        max_value=25,
-                        value=1,
-                        step=1,
-                        key="new_boss_token",
-                    )
+                    new_boss_name = st.text_input("Name", key="new_boss_name")
                     new_boss_hp = st.number_input(
                         "Maximale HP",
                         min_value=1,
@@ -1573,28 +1686,70 @@ with empty_space:
                         step=1,
                         key="new_boss_hp",
                     )
+                    initiative_modifier = st.number_input(
+                        "Initiative-Modifikator",
+                        min_value=-20,
+                        max_value=20,
+                        value=0,
+                        step=1,
+                        key="new_hp_initiative_modifier",
+                    )
+                    if new_combatant_type == "Gegner":
+                        new_boss_element = st.selectbox(
+                            "Element",
+                            ELEMENTS,
+                            key="new_boss_element",
+                        )
+                        new_boss_token = st.number_input(
+                            "Monstertoken",
+                            min_value=1,
+                            max_value=25,
+                            value=1,
+                            step=1,
+                            key="new_boss_token",
+                        )
                     add_boss_submitted = st.form_submit_button(
-                        "Gegner hinzufügen", type="primary", use_container_width=True
+                        "Figur hinzufügen", type="primary", use_container_width=True
                     )
                 if add_boss_submitted:
-                    if len(st.session_state.bosses) >= MAX_BOSSES:
-                        st.error(f"Es können höchstens {MAX_BOSSES} HP-Leisten angelegt werden.")
+                    if len(st.session_state.bosses) >= MAX_COMBATANTS:
+                        st.error(f"Es können höchstens {MAX_COMBATANTS} Figuren angelegt werden.")
                     elif new_boss_name.strip():
-                        st.session_state.bosses.append(
+                        combatant_id = uuid.uuid4().hex
+                        new_combatant = {
+                            "id": combatant_id,
+                            "name": new_boss_name.strip(),
+                            "type": new_combatant_type,
+                            "max_hp": new_boss_hp,
+                            "current_hp": new_boss_hp,
+                            "effects": [],
+                        }
+                        if new_combatant_type == "Gegner":
+                            new_combatant["element"] = new_boss_element
+                            new_combatant["token"] = new_boss_token
+                        st.session_state.bosses.append(new_combatant)
+                        st.session_state.initiative_combatants.append(
                             {
-                                "id": uuid.uuid4().hex,
-                                "name": new_boss_name.strip(),
-                                "element": new_boss_element,
-                                "token": new_boss_token,
-                                "max_hp": new_boss_hp,
-                                "current_hp": new_boss_hp,
+                                "id": combatant_id,
+                                "name": new_combatant["name"],
+                                "type": new_combatant_type,
+                                "modifier": int(initiative_modifier),
+                                "initiative": roll_initiative(int(initiative_modifier)),
+                                "order": max(
+                                    (
+                                        combatant["order"]
+                                        for combatant in st.session_state.initiative_combatants
+                                    ),
+                                    default=-1,
+                                ) + 1,
                             }
                         )
+                        sync_combatant_pins()
                     else:
                         st.error("Bitte gib einen Gegnernamen ein.")
 
         if not st.session_state.bosses:
-            st.markdown('<div class="effects-empty">Noch keine Gegner angelegt</div>', unsafe_allow_html=True)
+            st.markdown('<div class="effects-empty">Noch keine Figuren angelegt</div>', unsafe_allow_html=True)
 
         for boss_index, boss in enumerate(st.session_state.bosses):
             boss_id = boss["id"]
@@ -1603,8 +1758,10 @@ with empty_space:
                 with name_column:
                     dead_marker = " 💀" if boss["current_hp"] == 0 else ""
                     st.markdown(f"**{boss['name']}**{dead_marker}")
-                    st.caption(f"Element: {boss['element']}")
-                    st.caption(f"Monstertoken: {boss['token']}")
+                    st.caption(f"Art: {boss.get('type', 'Gegner')}")
+                    if boss.get("type", "Gegner") == "Gegner":
+                        st.caption(f"Element: {boss.get('element', ELEMENTS[0])}")
+                        st.caption(f"Monstertoken: {boss.get('token', 1)}")
                 with delete_column:
                     st.button(
                         "🗑️",
@@ -1616,6 +1773,38 @@ with empty_space:
                     boss["current_hp"] / boss["max_hp"],
                     text=f'{boss["current_hp"]} / {boss["max_hp"]} HP',
                 )
+                effect_controls = st.columns([4, 1])
+                with effect_controls[0]:
+                    selected_effect = st.selectbox(
+                        "Effekt hinzufügen",
+                        EFFECTS,
+                        key=f"effect_select_{boss_id}",
+                        label_visibility="collapsed",
+                    )
+                with effect_controls[1]:
+                    st.button(
+                        "Hinzufügen",
+                        key=f"add_effect_{boss_id}",
+                        use_container_width=True,
+                        disabled=selected_effect in boss["effects"],
+                        on_click=add_combatant_effect,
+                        args=(boss_id,),
+                    )
+                for effect in boss["effects"]:
+                    effect_column, remove_effect_column = st.columns([5, 1])
+                    with effect_column:
+                        st.markdown(
+                            f'<span class="effect-chip">{effect}</span>',
+                            unsafe_allow_html=True,
+                        )
+                    with remove_effect_column:
+                        st.button(
+                            "×",
+                            key=f"remove_effect_{boss_id}_{effect}",
+                            help=f"{effect} entfernen",
+                            on_click=remove_combatant_effect,
+                            args=(boss_id, effect),
+                        )
                 with st.popover(
                     "⚙️",
                     key=f"edit_boss_{boss_id}",
@@ -1623,24 +1812,25 @@ with empty_space:
                 ):
                     with st.form(f"edit_boss_form_{boss_id}"):
                         edited_name = st.text_input(
-                            "Name des Gegners",
+                            "Name",
                             value=boss["name"],
                             key=f"boss_name_{boss_id}",
                         )
-                        edited_element = st.selectbox(
-                            "Element",
-                            ELEMENTS,
-                            index=ELEMENTS.index(boss["element"]),
-                            key=f"boss_element_{boss_id}",
-                        )
-                        edited_token = st.number_input(
-                            "Monstertoken",
-                            min_value=1,
-                            max_value=25,
-                            value=boss["token"],
-                            step=1,
-                            key=f"boss_token_{boss_id}",
-                        )
+                        if boss.get("type", "Gegner") == "Gegner":
+                            edited_element = st.selectbox(
+                                "Element",
+                                ELEMENTS,
+                                index=ELEMENTS.index(boss.get("element", ELEMENTS[0])),
+                                key=f"boss_element_{boss_id}",
+                            )
+                            edited_token = st.number_input(
+                                "Monstertoken",
+                                min_value=1,
+                                max_value=25,
+                                value=boss.get("token", 1),
+                                step=1,
+                                key=f"boss_token_{boss_id}",
+                            )
                         edited_max_hp = st.number_input(
                             "Maximale HP",
                             min_value=1,
@@ -1655,10 +1845,22 @@ with empty_space:
                     if edit_submitted:
                         if edited_name.strip():
                             boss["name"] = edited_name.strip()
-                            boss["element"] = edited_element
-                            boss["token"] = edited_token
+                            if boss.get("type", "Gegner") == "Gegner":
+                                boss["element"] = edited_element
+                                boss["token"] = edited_token
                             boss["max_hp"] = edited_max_hp
                             boss["current_hp"] = min(boss["current_hp"], edited_max_hp)
+                            initiative = next(
+                                (
+                                    combatant
+                                    for combatant in st.session_state.initiative_combatants
+                                    if combatant["id"] == boss_id
+                                ),
+                                None,
+                            )
+                            if initiative:
+                                initiative["name"] = boss["name"]
+                            sync_combatant_pins()
                             st.rerun()
                         else:
                             st.error("Der Gegnername darf nicht leer sein.")
@@ -1694,54 +1896,6 @@ with empty_space:
                 f" · Am Zug: {next((combatant['name'] for combatant in initiative_combatants if combatant['id'] == st.session_state.initiative_active_id), 'Noch nicht gestartet')}"
             )
         )
-        with st.form("add_initiative_combatant_form", clear_on_submit=True):
-            combatant_name = st.text_input("Name")
-            add_columns = st.columns(2)
-            with add_columns[0]:
-                combatant_type = st.selectbox(
-                    "Teilnehmer",
-                    ["Spieler", "Gegner", "NSC"],
-                )
-            with add_columns[1]:
-                initiative_modifier = st.number_input(
-                    "Initiative-Modifikator",
-                    min_value=-20,
-                    max_value=20,
-                    value=0,
-                    step=1,
-                    help="Wird zum W20-Ergebnis addiert.",
-                )
-            add_combatant_submitted = st.form_submit_button(
-                "Hinzufügen & W20 würfeln",
-                type="primary",
-                use_container_width=True,
-                disabled=len(initiative_combatants) >= 30,
-            )
-        if add_combatant_submitted:
-            if not combatant_name.strip():
-                st.error("Bitte gib einen Namen ein.")
-            elif len(initiative_combatants) >= 30:
-                st.error("Der Initiative-Tracker kann höchstens 30 Teilnehmer verwalten.")
-            else:
-                roll = roll_initiative(int(initiative_modifier))
-                st.session_state.initiative_combatants.append(
-                    {
-                        "id": uuid.uuid4().hex,
-                        "name": combatant_name.strip(),
-                        "type": combatant_type,
-                        "modifier": int(initiative_modifier),
-                        "initiative": roll,
-                        "order": max(
-                            (
-                                combatant["order"]
-                                for combatant in st.session_state.initiative_combatants
-                            ),
-                            default=-1,
-                        ) + 1,
-                    }
-                )
-                st.rerun()
-
         turn_controls = st.columns(2)
         turn_controls[0].button(
             "Nächster Zug",
@@ -1785,42 +1939,4 @@ with empty_space:
                 use_container_width=True,
             )
         else:
-            st.info("Füge Spieler, Gegner oder NSC hinzu, um die Zugreihenfolge zu starten.")
-
-    # Aktive Status-Effekte verwalten.
-    with st.container(key="effects_panel"):
-        title_column, add_column = st.columns([4, 1], vertical_alignment="center")
-        with title_column:
-            st.markdown('<div class="effects-panel-title">Effekte</div>', unsafe_allow_html=True)
-        with add_column:
-            with st.popover("+", use_container_width=False):
-                selected_effect = st.selectbox(
-                    "Effekt auswählen",
-                    EFFECTS,
-                    key="effect_to_add",
-                    label_visibility="collapsed",
-                )
-                st.button(
-                    "Hinzufügen",
-                    key="add_effect_button",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=selected_effect in st.session_state.active_effects,
-                    on_click=add_effect,
-                    args=(selected_effect,),
-                )
-
-        if st.session_state.active_effects:
-            for effect_index, effect in enumerate(st.session_state.active_effects):
-                effect_column, remove_column = st.columns([5, 1], vertical_alignment="center")
-                with effect_column:
-                    st.markdown(f'<span class="effect-chip">{effect}</span>', unsafe_allow_html=True)
-                with remove_column:
-                    st.button(
-                        "×",
-                        key=f"remove_effect_{effect_index}",
-                        on_click=remove_effect,
-                        args=(effect_index,),
-                    )
-        else:
-            st.markdown('<div class="effects-empty">Keine Effekte aktiv</div>', unsafe_allow_html=True)
+            st.info("Füge Figuren über „Gegner & Spieler HP“ hinzu, um die Zugreihenfolge zu starten.")

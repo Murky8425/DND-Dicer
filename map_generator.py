@@ -331,7 +331,8 @@ def _forest(
             continue
         radius = rng.randint(12, 21)
         trees.append(
-            f'<circle cx="{x}" cy="{y}" r="{radius + 5}" fill="#173c31" />'
+            f'<circle class="tree-obstacle" cx="{x}" cy="{y}" '
+            f'r="{radius + 5}" fill="#173c31" />'
             f'<circle cx="{x - 3}" cy="{y - 4}" r="{radius}" fill="#32634b" '
             'stroke="#224c3b" stroke-width="3" />'
             f'<circle cx="{x - 7}" cy="{y - 9}" r="{radius // 3}" '
@@ -430,7 +431,8 @@ def _cave(
             continue
         radius = rng.randint(8, 24)
         rocks.append(
-            f'<ellipse cx="{x}" cy="{y}" rx="{radius + 8}" ry="{radius}" '
+            f'<ellipse class="rock-obstacle" cx="{x}" cy="{y}" '
+            f'rx="{radius + 8}" ry="{radius}" '
             'fill="#262a2c" stroke="#55595a" stroke-width="3" />'
         )
 
